@@ -224,7 +224,7 @@ class RoundedBoxGeometry extends BoxGeometry {
 
 
 const canvas = document.querySelector('#view');
-const canvasContext = canvas.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: true });
+const canvasContext = canvas.getContext('webgl2', { powerPreference: 'high-performance', antialias: true, alpha: false, preserveDrawingBuffer: true });
 if (!canvasContext) throw new Error('WebGL 2 unavailable');
 const renderer = new THREE.WebGLRenderer({ canvas, context: canvasContext, antialias: true });
 const nativePixelRatio = Math.min(window.devicePixelRatio, 1.65);
@@ -480,10 +480,12 @@ function plasterTexture() {
   return map;
 }
 
+const primitiveScales = new WeakMap();
 function getBox(w, h, d, radius) {
   const key = [w, h, d, radius].join('/');
   if (!geometryCache.has(key)) {
-    const geometry = radius ? new RoundedBoxGeometry(w, h, d, 2, radius) : new BoxGeometry(w, h, d);
+    const geometry = radius ? new RoundedBoxGeometry(w, h, d, radius <= .012 ? 1 : 2, radius) : new BoxGeometry(w, h, d);
+    if (!radius) primitiveScales.set(geometry,new Vector3(w,h,d));
     if (radius > 0 && radius <= .018) geometry.userData.distantBox = [w, h, d];
     geometryCache.set(key, geometry);
   }
@@ -609,7 +611,9 @@ function combineFixedTrim(parent, candidates = parent.children) {
 }
 
 function plane(w, h, x, y, z, material, options) {
-  return mesh(new THREE.PlaneGeometry(w, h), singlePassGlazing.get(material) ?? material, x, y, z, options);
+  const geometry = new THREE.PlaneGeometry(w,h);
+  primitiveScales.set(geometry,new Vector3(w,h,1));
+  return mesh(geometry, singlePassGlazing.get(material) ?? material, x, y, z, options);
 }
 
 function solid(x, z, w, d, rotation = 0, top = Infinity) {
@@ -10066,12 +10070,83 @@ function prepareSchoolView(refreshShadows) {
   }
 }
 
+// Pack visible, matching opaque parts into instanced draws. Original meshes
+// retain their hierarchy for picking, room visibility, animations and shadows.
+function makeOpaqueBatches() {
+  const groups = new Map(), entries = new WeakMap(), hidden = [], draws = [];
+  const unitBox = getBox(1,1,1,0), unitPlane = new THREE.PlaneGeometry(1,1);
+  const reflection = new THREE.Matrix4().makeScale(-1,1,1), matrix = new THREE.Matrix4();
+  scene.updateMatrixWorld(true);
+  scene.traverse(mesh => {
+    if (!mesh.isMesh || mesh.isInstancedMesh || mesh.isSkinnedMesh || mesh.children.length ||
+        mesh.morphTargetInfluences || mesh.renderOrder !== 0) return;
+    const {material,geometry} = mesh;
+    if (Array.isArray(material) || material.transparent ||
+        material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return;
+    const scale = geometry.attributes.position.version === 0 ? primitiveScales.get(geometry) : null;
+    const base = scale ? (geometry.type === 'PlaneGeometry' ? unitPlane : unitBox) : geometry;
+    const mirrored = mesh.matrixWorld.determinant() < 0;
+    const key = [base.id, material.id, mesh.receiveShadow, mesh.layers.mask, mirrored].join('/');
+    if (!groups.has(key)) groups.set(key,{base,material,mirrored,parts:[]});
+    groups.get(key).parts.push({mesh,geometry,scale});
+  });
+  for (const {base,material,mirrored,parts} of groups.values()) {
+    if (parts.length < 3) continue;
+    const batch = new THREE.InstancedMesh(base,material,parts.length);
+    batch.receiveShadow = parts[0].mesh.receiveShadow;
+    batch.layers.mask = parts[0].mesh.layers.mask;
+    batch.scale.x = mirrored ? -1 : 1;
+    batch.frustumCulled = batch.visible = false;
+    batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    batch.count = 0;
+    scene.add(batch);
+    batch.updateWorldMatrix(true,false);
+    for (const part of parts) entries.set(part.mesh, {batch, geometry:part.geometry, scale:part.scale});
+    draws.push(batch);
+  }
+  return {
+    begin() {
+      scene.traverseVisible(mesh => {
+        const entry = entries.get(mesh);
+        if (!entry || mesh.material !== entry.batch.material || mesh.geometry !== entry.geometry ||
+            !camera.layers.test(mesh.layers) || (mesh.frustumCulled && !viewFrustum.intersectsObject(mesh))) return;
+        const batch = entry.batch;
+        matrix.copy(mesh.matrixWorld);
+        if (batch.scale.x < 0) matrix.premultiply(reflection);
+        if (entry.scale) matrix.scale(entry.scale);
+        batch.setMatrixAt(batch.count++,matrix);
+        mesh.visible = false;
+        hidden.push(mesh);
+      });
+      for (const batch of draws) if (batch.count) {
+        batch.visible = true;
+        batch.instanceMatrix.addUpdateRange(0,16*batch.count);
+        batch.instanceMatrix.needsUpdate = true;
+      }
+    },
+    end() {
+      for (const mesh of hidden) mesh.visible = true;
+      hidden.length = 0;
+      for (const batch of draws) {
+        batch.visible = false;
+        batch.count = 0;
+      }
+    }
+  };
+}
+const opaqueBatches = makeOpaqueBatches();
 function renderSchool(refreshShadows, sceneChanged = true) {
   prepareSchoolView(refreshShadows);
   // Camera-only frames reuse the school's world transforms. The camera is independent.
   scene.matrixWorldAutoUpdate = sceneChanged;
-  renderer.render(scene, camera);
-  scene.matrixWorldAutoUpdate = true;
+  const batches = !sceneChanged && !renderer.shadowMap.needsUpdate && opaqueBatches;
+  if (batches) batches.begin();
+  try {
+    renderer.render(scene, camera);
+  } finally {
+    if (batches) batches.end();
+    scene.matrixWorldAutoUpdate = true;
+  }
 }
 
 const cabLightPosition = new Vector3();
@@ -10847,7 +10922,7 @@ async function warmEntryCorridor() {
     for (const [distance, yaw] of [[1.2, spawnYaw / 2], [2.4, 0]]) {
       camera.position.set(hallwayX, position.y, spawnZ + distance);
       camera.rotation.y = yaw;
-      renderSchool(false);
+      renderSchool(false,false);
     }
   } finally {
     camera.position.copy(position);
