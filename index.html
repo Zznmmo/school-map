@@ -5568,6 +5568,7 @@ buildEndCorridorWindow(0,scene);
 // Only the second-floor corridor extends one fountain length into the gym.
 const sportsFountainLength = 1.20;
 const sportsEntranceZ = corridorFront - sportsFountainLength;
+const gymFixtureBay = { start: .07, end: 2.81, depth: .60 };
 const stackedCorridorBack = oppositePlanZ(mapLayout.stackedCorridorEnd);
 // The upper and lower corridors share stairwell openings with the main floor.
 function sanitaryWalkable(x, z, spaces, interiors) {
@@ -5589,6 +5590,9 @@ function stackedHallWalkable(x, z, footHeight) {
   if (nearestLandingY(footHeight) === firstFloorY && entranceWalkable(x,z)) return true;
   if (nearestLandingY(footHeight) === -storey && x >= gymHallEndX + playerRadius && x <= right + playerRadius &&
       z >= gymHallFront + playerRadius && z <= firstClassWing - playerRadius) return true;
+  if (nearestLandingY(footHeight) === -storey && x >= right - gymFixtureBay.depth + playerRadius &&
+      x <= right + playerRadius && z >= sportsEntranceZ + gymFixtureBay.start + playerRadius &&
+      z <= sportsEntranceZ + gymFixtureBay.end - playerRadius) return true;
   if (z < hallFront + playerRadius || z > corridorBack - playerRadius || x < right + playerRadius) return false;
   if (x <= corridorRight - playerRadius) return true;
   const atLibraryStair = z >= libraryStairMinZ + playerRadius && z <= libraryStairMaxZ - playerRadius;
@@ -5923,7 +5927,8 @@ hallFrontages(firstFloorHall, firstFloorY, stairEntryTo, endStairWindowMinZ-.08,
   ['화장실', 'utility', 4], ['유희실', 'class', 9], ['유치원 원무실', 'office', 7],
   ['수면실', 'room', 4], ['셔터', 'shutter', 2]
 ], endStairMinZ-.08);
-hallFrontages(secondFloorHall, -storey, sportsEntranceZ, gymHallFront, true, [['', 'wall', 1]]);
+hallFrontages(secondFloorHall, -storey, sportsEntranceZ, sportsEntranceZ + gymFixtureBay.start, true, [['', 'wall', 1]]);
+hallFrontages(secondFloorHall, -storey, sportsEntranceZ + gymFixtureBay.end, gymHallFront, true, [['', 'wall', 1]]);
 hallFrontages(secondFloorHall, -storey, sportsEntranceZ, corridorFront, false, [['', 'wall', 1]]);
 buildGymHall();
 hallFrontages(secondFloorHall, -storey, firstClassWing, stackedCorridorBack, true, [
@@ -6049,24 +6054,38 @@ function buildSportsRoom() {
   }
 
   const wallX=-corridorDepth/2;
-  const dispenser=joint(entry,wallX+.51,0,2.48);
+  const bay=gymFixtureBay, backX=wallX-bay.depth, bayX=(wallX+backX)/2;
+  const baySpan=bay.end-bay.start, bayZ=(bay.start+bay.end)/2;
+  const floorFinish=sanitaryFinish(tileMap,bay.depth/corridorDepth,baySpan/length);
+  plane(bay.depth,baySpan,bayX,0,bayZ,floorFinish,{parent:entry,rx:-Math.PI/2,shadow:false});
+  front(bay.depth,.06,baySpan,bayX,height+.03,bayZ,acoustic);
+  front(.12,height,baySpan,backX-.06,height/2,bayZ,hallWall);
+  obstacle(backX-.06,bayZ,.12,baySpan);
+  for(const returnZ of [bay.start-.03,bay.end+.03]){
+    front(bay.depth,height,.06,bayX,height/2,returnZ,hallWall);
+    registerAimBarrier(bay.depth,height,.06,bayX,height/2,returnZ,entryParts);
+    obstacle(bayX,returnZ,bay.depth,.06);
+  }
+  const fountainZ=2.18, cupboardZ=1.03;
+  const dispenser=joint(entry,backX+.53,0,fountainZ);
   dispenser.rotation.y=Math.PI/2;
   buildDrinkingFountain(dispenser,'himchan-fountain',Math.PI/2,()=>Math.abs(player.jumpHeight+storey)<.85);
-  obstacle(wallX+.26,2.48,.55,sportsFountainLength);
-  front(.32,2.60,1.05,wallX+.13,1.30,1.33,maple);
-  for(const v of [1.08,1.58]){
-    front(.020,2.53,.50,wallX+.30,1.29,v,doorMaple);
-    front(.030,.13,.017,wallX+.325,1.10,v+(v<1.33?.17:-.17),steel);
+  obstacle(backX+.28,fountainZ,.56,sportsFountainLength);
+  front(.32,2.60,1.05,backX+.16,1.30,cupboardZ,maple);
+  for(const side of [-1,1]){
+    const v=cupboardZ+side*.25;
+    front(.020,2.53,.50,backX+.33,1.29,v,doorMaple);
+    front(.030,.13,.017,backX+.355,1.10,v-side*.17,steel);
   }
-  obstacle(wallX+.15,1.33,.35,1.05);
+  obstacle(backX+.18,cupboardZ,.36,1.05);
   const hoopGeo=new THREE.TorusGeometry(.397,.018,8,52);
   const hoopPaint=['#66ab59','#f3c549','#ec7167','#51a7c3','#9b76aa'].map(c=>surface(c,{roughness:.48}));
   for(let i=0;i<9;i++){
     const radiusScale=1+(i%3)*.055;
-    place(hoopGeo,hoopPaint[i%hoopPaint.length],wallX+.54+i*.022,.424*radiusScale,.39+i*.039,
+    place(hoopGeo,hoopPaint[i%hoopPaint.length],wallX+.08+i*.022,.424*radiusScale,.36+i*.032,
       {...entryParts,rx:-.22-i*.026,ry:.12+(i%3)*.12,sx:radiusScale,sy:radiusScale,shadow:false});
   }
-  obstacle(wallX+.61,.56,.89,.48);
+  obstacle(wallX+.15,.50,.89,.48);
 
   const wood=woodTexture(11,{hue:36,saturation:48,light:67,variation:4});
   wood.repeat.set(3,4);
