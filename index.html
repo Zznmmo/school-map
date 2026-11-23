@@ -1320,9 +1320,10 @@ function corridorLight(x, z, isHall, ry = 0, lamp = isHall ? hallwayDiffusers[2]
     lamp, { radius: .006, batch: true, ry, ...options });
 }
 for (const x of [-3, 0, 3]) for (const z of ceilingLightRows) corridorLight(classroomX(x), z, false);
-for (const z of ceilingLightRows) corridorLight(hallwayX, z, true);
-for (let z = ceilingLightRows[0] - 2.82; z > corridorFront + .75; z -= 2.82) corridorLight(hallwayX, z, true);
-for (let z = ceilingLightRows.at(-1) + 2.82; z < corridorBack - .75; z += 2.82) corridorLight(hallwayX, z, true);
+const hallLightSpacing = 5.64;
+// The third-floor hall follows the classroom grid through its central bay.
+for (let z = ceilingLightRows[0]; z > corridorFront + .75; z -= hallLightSpacing) corridorLight(hallwayX, z, true);
+for (let z = ceilingLightRows.at(-1); z < corridorBack - .75; z += hallLightSpacing) corridorLight(hallwayX, z, true);
 const ceilingLightPower = 7.0;
 const ceilingLights = [];
 function ceilingDownlight(x, z, power = ceilingLightPower, reach = 3.45, angle = Math.PI * .36) {
@@ -2819,7 +2820,7 @@ plane(wingWidth, wingLength, wingX, -.001, wingZ, hallFloorMaterial(wingLength, 
   { parent: scienceCorridor, rx: -Math.PI / 2, rz: Math.PI / 2, shadow: false });
 box(wingLength + hallCeilingInset, ceilingSlabThickness, wingWidth, wingX + hallCeilingInset / 2,
   height + ceilingSlabThickness / 2, wingZ, acoustic, { parent: scienceCorridor });
-for (let x = right - 1.2; x > scienceEnd + .7; x -= 2.82) corridorLight(x, wingZ, true, Math.PI / 2, hallwayDiffusers[2], height, wingInteriorParts);
+for (let x = right - 1.2; x > scienceEnd + .7; x -= hallLightSpacing) corridorLight(x, wingZ, true, Math.PI / 2, hallwayDiffusers[2], height, wingInteriorParts);
 for (const [from, to, label] of plan.scienceWing.side) {
   const start = scienceX(from), end = scienceX(to);
   hallFacade(label, 'science', (start + end) / 2, scienceFront, start - end, 0, 0, scienceCorridorInterior);
@@ -5948,7 +5949,7 @@ function buildGymHall() {
   plane(gymHallWidth, gymHallLength, centerX, y - .001, gymHallCenterZ, hallFloorMaterial(gymHallLength),
     { parent: secondFloorHall, rx: -Math.PI / 2, rz: Math.PI / 2, shadow: false }).name = 'second-gym-hall-floor';
   box(gymHallLength, .045, gymHallWidth, centerX, y + height + .0225, gymHallCenterZ, acoustic, parts);
-  for (let x = right - 1.4; x > gymHallEndX + .6; x -= 2.82) {
+  for (let x = right - 1.4; x > gymHallEndX + .6; x -= hallLightSpacing) {
     box(1.08, .035, .207, x, y + height - .020, gymHallCenterZ, frame, parts);
     box(1.011, .015, .172, x, y + height - .041, gymHallCenterZ, hallwayDiffusers[1], parts);
   }
@@ -5977,7 +5978,7 @@ function buildStackedHall(name, y, endRoom, endKind = 'room') {
   plane(corridorDepth, stackedLength, hallwayX, y - .001, stackedCenter, hallFloorMaterial(stackedLength),
     { parent: root, rx: -Math.PI / 2, shadow: false }).name = name + '-hall-floor';
   box(corridorDepth, .045, stackedLength, hallwayX, y + height + .0225, stackedCenter, acoustic, parts);
-  for (let z = corridorFront + 1.4; z < hallEnd - .5; z += 2.82) {
+  for (let z = corridorFront + 1.4 + hallLightSpacing / 2; z < hallEnd - .5; z += hallLightSpacing) {
     box(.207, .035, 1.08, hallwayX, y + height - .020, z, frame, parts);
     box(.172, .015, 1.011, hallwayX, y + height - .041, z, hallwayDiffusers[Math.round(y/storey)+2], parts);
   }
