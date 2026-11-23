@@ -229,9 +229,6 @@ if (!canvasContext) throw new Error('WebGL 2 unavailable');
 const renderer = new THREE.WebGLRenderer({ canvas, context: canvasContext, antialias: true });
 const nativePixelRatio = Math.min(window.devicePixelRatio, 1.65);
 renderer.setPixelRatio(nativePixelRatio);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.shadowMap.autoUpdate = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
 
@@ -721,25 +718,14 @@ const tubePaint = surface('#a4aca9', { metalness: .12, roughness: .53 });
 const tubeUpper = surface('#b2b9b7', { metalness: .16, roughness: .47 });
 const endCap = surface('#687674', { roughness: .82 });
 
-const skyFill = new THREE.HemisphereLight('#e8eff7', '#e0d4c6', 1.13);
+const skyFill = new THREE.HemisphereLight('#e8eff7', '#e0d4c6', 1.38);
 scene.add(skyFill);
 const ambientFill = new THREE.AmbientLight('#f3eee8', .21);
 scene.add(ambientFill);
-const sun = new THREE.DirectionalLight('#fff0d4', 2.12);
+const sun = new THREE.DirectionalLight('#fff0d4', 1.48);
 sun.position.set(-11.2, 6.7, 2.45);
 sun.target.position.set(1, 0, -.33);
-Object.assign(sun.shadow.camera, { left: -7.9, right: 7.9, top: 6.65, bottom: -6.65, near: .2, far: 28 });
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.bias = -.00015;
-sun.shadow.normalBias = .011;
-sun.castShadow = true;
 scene.add(sun, sun.target);
-const bounce = new THREE.DirectionalLight('#f0ede7', .46);
-bounce.position.set(3.5, 4, 1.8);
-scene.add(bounce);
-const floorBounce = new THREE.DirectionalLight('#edf0f3', .30);
-floorBounce.position.set(-3, -2.6, 1.5);
-scene.add(floorBounce);
 
 const acousticMap = texture(768, 768, (g, w, h) => {
   g.fillStyle = '#e1e1dd'; g.fillRect(0, 0, w, h);
@@ -4487,7 +4473,7 @@ function positionElevatorDoors() {
   const gap = elevatorDoorGap();
   for (const { floor, cabin, leaves } of elevatorDoorLeaves) for (const { leaf, side, start } of leaves)
     leaf.position.x = start + side * (cabin || floor === elevator.floor ? gap : 0);
-  viewDirty = true; shadowsDirty = true;
+  viewDirty = true;
 }
 function stepElevator(dt) {
   if (!dt) return;
@@ -4519,7 +4505,7 @@ function stepElevator(dt) {
       prop.closed.min.y += delta; prop.closed.max.y += delta; prop.center.y += delta;
     }
     if (riding) player.jumpHeight += delta;
-    viewDirty = true; shadowsDirty = true;
+    viewDirty = true;
     if (previousLabel !== Math.round(3 + elevator.y / storey)) updateElevatorDisplays();
     if (t === 1) {
       elevator.floor = elevator.destination;
@@ -9481,7 +9467,6 @@ function belowUpperClassrooms(bounds) {
 // Some furniture and frame assemblies touch a wall, so they live outside the
 // inset room-detail groups. Keep their original visibility on the occupied floor.
 const looseClassroomFloors = new Map();
-const slabHiddenGroups = [];
 function groupLooseClassroomPart(object,bounds) {
   const room = classroomsWithFacades.find(r => bounds.min.y >= r.level-.11 && bounds.max.y <= r.level+height+.10 &&
     bounds.min.z >= r.minZ-.10 && bounds.max.z <= r.maxZ+.10 &&
@@ -9507,7 +9492,7 @@ for (const light of ceilingLights) {
 }
 
 // Match the combined light on a horizontal work surface. The source weights are
-// computed once; the corridor light can then follow each switch or dimmer.
+// computed once so one room light can follow its fixtures and switches.
 function lightAtWorktop(lamp,x,y,z) {
   const dy = lamp.position.y-y;
   const distance = Math.hypot(lamp.position.x-x,dy,lamp.position.z-z);
@@ -9518,7 +9503,7 @@ function lightAtWorktop(lamp,x,y,z) {
 }
 function makeRoomFill(room) {
   const sources = room.lights, lamp = sources[0].clone(false);
-  lamp.name = 'corridor-view-light';
+  lamp.name = 'room-ceiling-light';
   lamp.position.set(0,0,0);
   for (const source of sources) lamp.position.add(source.position);
   lamp.position.divideScalar(sources.length);
@@ -9540,9 +9525,8 @@ function makeRoomFill(room) {
   }
   room.fillWeights = weights.map(w=>w/Math.max(total,.0001));
   room.fill = lamp;
-  room.fillBlend = 0;
-  // The room downlights share the same fixed white. Switches own their intensities.
-  room.lampColor = sources[0].color.clone();
+  // The fixtures still own the switch state. Only their combined light is drawn.
+  for (const source of sources) source.visible = false;
   lamp.visible = false;
   room.group.add(lamp,lamp.target);
   ceilingLights.push(lamp);
@@ -9552,20 +9536,14 @@ for (const room of renderRooms) if (room.lights.length>1) makeRoomFill(room);
 function updateRoomLights(room,dx,dz) {
   const distance = Math.hypot(dx,dz);
   room.lightsNearby = distance <= (room.lightsNearby ? 6 : 5);
-  const blend = room.fill ? THREE.MathUtils.smoothstep(distance,.12,1.05) : 0;
-  let power = 0;
-  for (let i=0;i<room.lights.length;i++) {
-    const source=room.lights[i];
-    source.visible = room.lightsNearby && source.intensity>0 && blend<1;
-    if (room.fill) {
-      if (blend!==room.fillBlend) source.color.copy(room.lampColor).multiplyScalar(1-blend);
-      power += source.intensity*room.fillWeights[i];
-    }
-  }
   if (room.fill) {
-    room.fill.intensity = power*blend;
-    room.fill.visible = room.lightsNearby && room.fill.intensity>0;
-    room.fillBlend = blend;
+    let power = 0;
+    for (let i = 0; i < room.lights.length; i++) power += room.lights[i].intensity * room.fillWeights[i];
+    room.fill.intensity = power;
+    room.fill.visible = room.lightsNearby && power > 0;
+  } else {
+    const lamp = room.lights[0];
+    lamp.visible = room.lightsNearby && lamp.intensity > 0;
   }
 }
 for (const object of [...scene.children]) {
@@ -9777,7 +9755,6 @@ function updateResearchFixtures(fromHall) {
     const bounds = fixture.bounds;
     root.visible = !fromHall || bounds.min.x<=corridorRight || seenThroughFacade(bounds,fourthResearchFacade,openings) ||
       throughCreativeWindow(bounds,sharedWindows);
-    if (!root.visible && renderer.shadowMap.needsUpdate) hiddenWindowGroups.push(root);
   }
 }
 function leafCoversCell(bounds, railX, centerZ, level) {
@@ -9824,7 +9801,7 @@ function updateFurnitureVisibility(room, fromHall) {
     if (!batch.dirty) continue;
     batch.dirty=false;
     const {instances,cells,transforms}=batch;
-    // Keep original transforms and order for restoration and the shadow pass.
+    // Keep original transforms and order when restoring visible furniture.
     let count=0;
     for (let i=0;i<cells.length;i++) {
       if (cells[i].visible) instances.setMatrixAt(count++,transforms[i]);
@@ -9903,7 +9880,12 @@ chunks.lights_fragment_begin = chunks.lights_fragment_begin.replace(spotLoop, `
     if (lamp.distance > 0.0 && dot(delta, delta) >= lamp.distance * lamp.distance) continue;
     getSpotLightInfo(lamp, geometryPosition, directLight);
     if (directLight.visible) {
-      RE_Direct(directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight);
+      #ifdef STANDARD
+        // Ceiling diffusers provide broad, soft light. Keep glossy highlights on the sun and environment.
+        reflectedLight.directDiffuse += saturate(dot(geometryNormal, directLight.direction)) * directLight.color * BRDF_Lambert(material.diffuseColor);
+      #else
+        RE_Direct(directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight);
+      #endif
     }
   }
 #elif ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )`);
@@ -9922,31 +9904,6 @@ function updateLightSlots() {
   emptyCabLight.visible = !nightMode && !visibleInScene(elevatorLight);
 }
 
-// The shadow camera is fixed. Its caster set must include rooms outside the
-// player's view, even when their furniture is omitted from the colour pass.
-const shadowPass = renderer.shadowMap.render.bind(renderer.shadowMap);
-const hiddenShadowRooms = [];
-const hiddenWindowGroups = [];
-renderer.shadowMap.render = function(lights, sceneRoot, viewCamera) {
-  if (!this.needsUpdate) return;
-  for (const {group} of detailRooms) {
-    if (group.visible) continue;
-    hiddenShadowRooms.push(group);
-    group.visible = true;
-  }
-  for (const group of slabHiddenGroups) group.visible = true;
-  for (const group of hiddenWindowGroups) group.visible = true;
-  try {
-    shadowPass(lights, sceneRoot, viewCamera);
-  } finally {
-    for (const group of hiddenWindowGroups) group.visible = false;
-    for (const group of slabHiddenGroups) group.visible = false;
-    for (const group of hiddenShadowRooms) group.visible = false;
-    hiddenShadowRooms.length = 0;
-  }
-};
-let shadowFloorMask = -1;
-
 function seesScienceYard(x,z) {
   if (x<scienceEnd || x>corridorRight) return false;
   if (x<=right && (z<scienceFront || z>scienceBack)) return false;
@@ -9960,7 +9917,7 @@ function seesScienceYard(x,z) {
   return false;
 }
 
-function prepareSchoolView(refreshShadows) {
+function prepareSchoolView() {
   updateHallFill();
   hallFill.visible = !nightMode || hallFill.intensity > 0;
   firstFloorHall.visible = camera.position.y < -storey + .15;
@@ -9971,14 +9928,9 @@ function prepareSchoolView(refreshShadows) {
   lowerClassroomTrim.visible = camera.position.y < storey || camera.position.x > corridorRight;
   const {x,y,z} = camera.position;
   const inStackedCorridor = x>=right && x<=corridorRight && z>=corridorFront && z<=corridorBack;
-  slabHiddenGroups.length = 0;
-  if (inStackedCorridor && y < -.15) {
-    lowerClassroomTrim.visible = false;
-    slabHiddenGroups.push(lowerClassroomTrim);
-  }
+  if (inStackedCorridor && y < -.15) lowerClassroomTrim.visible = false;
   for (const [level,group] of looseClassroomFloors) {
     group.visible = !inStackedCorridor || (y>=level-.15 && y<=level+storey+.15);
-    if (!group.visible) slabHiddenGroups.push(group);
   }
   camera.updateMatrixWorld();
   viewFrustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
@@ -10042,14 +9994,9 @@ function prepareSchoolView(refreshShadows) {
   }
   for (const cell of renderCells.values()) setDistantGeometry(cell, x, z);
   updateLightSlots();
-  const floorMask = Number(firstFloorHall.visible) + 2 * Number(secondFloorHall.visible) + 4 * Number(fourthFloorHall.visible);
-  renderer.shadowMap.needsUpdate = !nightMode && (refreshShadows || floorMask !== shadowFloorMask);
-  if (renderer.shadowMap.needsUpdate) shadowFloorMask = floorMask;
   const inClassroomHall = x>=right && x<=corridorRight && z>=corridorFront && z<=corridorBack;
-  const fromHall = !renderer.shadowMap.needsUpdate && inClassroomHall;
   for (const room of classroomsWithFacades)
-    updateFurnitureVisibility(room,fromHall && camera.position.y>room.level && camera.position.y<room.level+height);
-  hiddenWindowGroups.length = 0;
+    updateFurnitureVisibility(room,inClassroomHall && camera.position.y>room.level && camera.position.y<room.level+height);
   updateResearchFixtures(inClassroomHall && onClassroomFloor && x<corridorRight-.26);
   for (const {minZ,maxZ,instances,originals} of doorFrameBatches) {
     const far = inClassroomHall && (z<minZ-10 || z>maxZ+10);
@@ -10066,12 +10013,11 @@ function prepareSchoolView(refreshShadows) {
       for (const group of bank.groups) group.visible=visible;
       bank.visible=visible;
     }
-    if (!visible && renderer.shadowMap.needsUpdate) hiddenWindowGroups.push(...bank.groups);
   }
 }
 
 // Pack visible, matching opaque parts into instanced draws. Original meshes
-// retain their hierarchy for picking, room visibility, animations and shadows.
+// retain their hierarchy for picking, room visibility and animations.
 function makeOpaqueBatches() {
   const groups = new Map(), entries = new WeakMap(), hidden = [], draws = [];
   const unitBox = getBox(1,1,1,0), unitPlane = new THREE.PlaneGeometry(1,1);
@@ -10135,11 +10081,11 @@ function makeOpaqueBatches() {
   };
 }
 const opaqueBatches = makeOpaqueBatches();
-function renderSchool(refreshShadows, sceneChanged = true) {
-  prepareSchoolView(refreshShadows);
+function renderSchool(sceneChanged = true) {
+  prepareSchoolView();
   // Camera-only frames reuse the school's world transforms. The camera is independent.
   scene.matrixWorldAutoUpdate = sceneChanged;
-  const batches = !sceneChanged && !renderer.shadowMap.needsUpdate && opaqueBatches;
+  const batches = !sceneChanged && opaqueBatches;
   if (batches) batches.begin();
   try {
     renderer.render(scene, camera);
@@ -10315,12 +10261,12 @@ let drag = false;
 let locked = false;
 let fallback = false;
 let hintTimer;
-let viewDirty = true, shadowsDirty = true;
+let viewDirty = true;
 let nightMode = false;
 const nightTint = new THREE.Color('#344364');
 const [daylightSky, nightSky] = await skyReady;
 scene.background = daylightSky;
-const daylightSources = [[sun, 0], [skyFill, .085], [ambientFill, .040], [bounce, 0], [floorBounce, .025]]
+const daylightSources = [[sun, 0], [skyFill, .10], [ambientFill, .045]]
   .map(([light, night]) => ({ light, day: light.intensity, night }));
 const lightSwitches = [...props.values()].filter(prop => /(?:^|-)light-switch-\d+$/.test(prop.id));
 const daylightSwitchSettings = new Map();
@@ -10353,7 +10299,6 @@ function toggleNightMode() {
   setNeighborhoodNight(nightMode, nightTint);
   curtain.emissiveIntensity = nightMode ? .035 : .33;
   viewDirty = true;
-  shadowsDirty = !nightMode;
   showHint(nightMode ? '밤 모드' : '낮 모드');
 }
 let actionPending = false;
@@ -10437,7 +10382,7 @@ function inDoorway(door, position) {
 function positionDoor(door) {
   const position = door.progress ** 2 * (3 - 2 * door.progress);
   door.leaf.position.x = door.direction * (openingWidth / 4 - travel * position);
-  viewDirty = true; shadowsDirty = true;
+  viewDirty = true;
 }
 
 function positionProp(prop) {
@@ -10458,7 +10403,7 @@ function positionProp(prop) {
     }
   }
   prop.onProgress?.(position);
-  viewDirty = true; shadowsDirty = true;
+  viewDirty = true;
 }
 
 function openCloseAction(open) {
@@ -10749,7 +10694,7 @@ function drawAvatars(dt) {
     const crouch = easeTo(avatar.crouch, next.crouching ? 1 : 0, alpha);
     const elevation = easeTo(root.position.y, next.jumpHeight ?? 0, alpha);
     if (Math.abs(dx) + Math.abs(dz) + Math.abs(turn) > .0002 || avatar.stride > .005 || face.rotation.x !== next.pitch * .59 || crouch !== avatar.crouch || elevation !== root.position.y) {
-      viewDirty = true; shadowsDirty = true;
+      viewDirty = true;
     }
     avatar.crouch = crouch;
     root.position.x += dx; root.position.z += dz;
@@ -10805,7 +10750,7 @@ function updateRoom(list) {
     present.add(data.id);
     if (!avatars.has(data.id)) {
       avatars.set(data.id, createAvatar(data));
-      viewDirty = true; shadowsDirty = true;
+      viewDirty = true;
     }
     avatars.get(data.id).next = data;
   }
@@ -10814,7 +10759,7 @@ function updateRoom(list) {
     scene.remove(avatar.root, avatar.shadow);
     avatar.label.remove(); avatar.jacket.dispose(); avatar.skin.dispose(); avatar.shadow.geometry.dispose();
     avatars.delete(id);
-    viewDirty = true; shadowsDirty = true;
+    viewDirty = true;
   }
   status.textContent = `멀티플레이 · ${list.length}명 접속`;
   document.querySelector('#status').classList.add('live');
@@ -10922,7 +10867,7 @@ async function warmEntryCorridor() {
     for (const [distance, yaw] of [[1.2, spawnYaw / 2], [2.4, 0]]) {
       camera.position.set(hallwayX, position.y, spawnZ + distance);
       camera.rotation.y = yaw;
-      renderSchool(false,false);
+      renderSchool(false);
     }
   } finally {
     camera.position.copy(position);
@@ -10947,11 +10892,10 @@ async function warmEntryCorridor() {
 resize();
 move(0);
 // Compile hidden rooms' material variants with the same daylight rig as the entry view.
-prepareSchoolView(true);
+prepareSchoolView();
 await renderer.compileAsync(scene, camera);
-renderSchool(true);
+renderSchool();
 await warmEntryCorridor();
-shadowsDirty = false;
 enter.disabled = false;
 enterText.textContent = '교실 들어가기';
 let lastTime = performance.now();
@@ -10979,8 +10923,6 @@ function tuneResolution(frameMs, moving) {
   }
 }
 
-let lastDynamicShadowTime = -Infinity;
-let pendingShadow = false;
 function frameLoop(time) {
   const frameMs = time - lastTime;
   const dt = clamp(frameMs / 1000, 0, .05);
@@ -10993,17 +10935,9 @@ function frameLoop(time) {
   transmit(time);
   const moving = !camera.position.equals(previousPosition) || !camera.rotation.equals(previousRotation);
   tuneResolution(frameMs, moving);
-  pendingShadow = !nightMode && (pendingShadow || shadowsDirty);
-  // Animate the geometry every frame. Refresh sunlight at 12 Hz during motion
-  // and immediately settle the final shadow once the animation stops.
-  const refreshShadow = pendingShadow && (!shadowsDirty || time - lastDynamicShadowTime >= 1000 / 12);
-  if (viewDirty || moving || refreshShadow) {
-    renderSchool(refreshShadow, viewDirty);
-    if (refreshShadow) {
-      lastDynamicShadowTime = time;
-      pendingShadow = false;
-    }
-    viewDirty = false; shadowsDirty = false;
+  if (viewDirty || moving) {
+    renderSchool(viewDirty);
+    viewDirty = false;
   }
   requestAnimationFrame(frameLoop);
 }
