@@ -129,14 +129,8 @@ class RoundedBoxGeometry extends BoxGeometry {
 		// if we just have one segment we're the same as a regular box
 		if ( segments === 1 ) return;
 
-		const geometry2 = this.toNonIndexed();
-
-		this.index = null;
-		this.attributes.position = geometry2.attributes.position;
-		this.attributes.normal = geometry2.attributes.normal;
-		this.attributes.uv = geometry2.attributes.uv;
-
-		//
+		// BoxGeometry already splits its six faces at UV seams. Vertices
+		// within each face can stay shared when rounding the edges.
 
 		const position = new Vector3();
 		const normal = new Vector3();
@@ -147,7 +141,7 @@ class RoundedBoxGeometry extends BoxGeometry {
 		const normals = this.attributes.normal.array;
 		const uvs = this.attributes.uv.array;
 
-		const faceTris = positions.length / 6;
+		const coordinatesPerFace = positions.length / 6;
 		const faceDirVector = new Vector3();
 		const halfSegmentSize = 0.5 / segments;
 
@@ -168,7 +162,7 @@ class RoundedBoxGeometry extends BoxGeometry {
 			normals[ i + 1 ] = normal.y;
 			normals[ i + 2 ] = normal.z;
 
-			const side = Math.floor( i / faceTris );
+			const side = Math.floor( i / coordinatesPerFace );
 
 			switch ( side ) {
 
@@ -580,9 +574,20 @@ function combineFixedTrim(parent, candidates = parent.children) {
     if (!geometry) {
       geometry = new THREE.BufferGeometry();
       const transformed = parts.map(part => {
-        const copy = part.geometry.index ? part.geometry.toNonIndexed() : new THREE.BufferGeometry().copy(part.geometry);
+        const copy = new THREE.BufferGeometry().copy(part.geometry);
         return copy.applyMatrix4(part.matrix);
       });
+      const indices = [];
+      let vertexOffset = 0;
+      for (const part of transformed) {
+        const count = part.getAttribute('position').count;
+        const index = part.getIndex();
+        for (let i = 0; i < (index ? index.count : count); i++) {
+          indices.push(vertexOffset + (index ? index.getX(i) : i));
+        }
+        vertexOffset += count;
+      }
+      geometry.setIndex(indices);
       for (const name of ['position', 'normal', 'uv']) {
         const attributes = transformed.map(g => g.getAttribute(name));
         const data = new Float32Array(attributes.reduce((sum, a) => sum + a.array.length, 0));
@@ -10061,9 +10066,12 @@ function prepareSchoolView(refreshShadows) {
   }
 }
 
-function renderSchool(refreshShadows) {
+function renderSchool(refreshShadows, sceneChanged = true) {
   prepareSchoolView(refreshShadows);
+  // Camera-only frames reuse the school's world transforms. The camera is independent.
+  scene.matrixWorldAutoUpdate = sceneChanged;
   renderer.render(scene, camera);
+  scene.matrixWorldAutoUpdate = true;
 }
 
 const cabLightPosition = new Vector3();
@@ -10088,6 +10096,30 @@ const crouchedEyeHeight = 1.27;
 const gravity = 22;
 const jumpSpeed = Math.sqrt(2 * gravity * .50);
 const furnitureRadius = .08;
+// Look up static obstacles by the player's cell. Expand their footprints so
+// collisions at cell boundaries still use exactly the same narrow-phase test.
+function indexColliders(obstacles) {
+  const cells = new Map();
+  const cellSize = 4;
+  for (const object of obstacles) {
+    const margin = Math.max(playerRadius, furnitureRadius);
+    const minX = Math.floor((object.x - object.hw - margin) / cellSize);
+    const maxX = Math.floor((object.x + object.hw + margin) / cellSize);
+    const minZ = Math.floor((object.z - object.hd - margin) / cellSize);
+    const maxZ = Math.floor((object.z + object.hd + margin) / cellSize);
+    for (let col = minX; col <= maxX; col++) {
+      for (let row = minZ; row <= maxZ; row++) {
+        const key = col + ',' + row;
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push(object);
+      }
+    }
+  }
+  const empty = [];
+  return (x, z) => cells.get(Math.floor(x / cellSize) + ',' + Math.floor(z / cellSize)) ?? empty;
+}
+const nearbyColliders = indexColliders(colliders);
+const nearbyUpperColliders = indexColliders(upperColliders);
 const clamp = THREE.MathUtils.clamp;
 
 function easeTo(current, target, blend) {
@@ -10124,7 +10156,7 @@ function free(x, z, footHeight = 0) {
     if (nearestLandingY(footHeight) === firstFloorY && (entranceBlocked(x,z) || groundsBlocked(x,z,footHeight))) return false;
     if (elevatorBlocked(x, z, footHeight)) return false;
     const allowed = stackedHallWalkable(x, z, footHeight) || stairWalkable(x, z, footHeight) || elevatorWalkable(x, z, footHeight);
-    if (nearestLandingY(footHeight) === storey && blockedByClassroom(x,z,footHeight,upperColliders,storey)) return false;
+    if (nearestLandingY(footHeight) === storey && blockedByClassroom(x,z,footHeight,nearbyUpperColliders(x,z),storey)) return false;
     return allowed && walkSurfaceAt(x, z, footHeight) <= footHeight + .19;
   }
   const betweenEndWalls = (start, end) => z >= start + playerRadius && z <= end - playerRadius;
@@ -10164,7 +10196,7 @@ function free(x, z, footHeight = 0) {
   const stepHeight = inThirdCreative ? thirdCreativeFloorY + thirdCreativeDeckRise : inStairs ? .19 : .12;
   if ((!inClass && !inBareum && !inHall && !inScienceWing && !inCreative && !inResearch && !inSanitary && !inStairs && !inElevator && !inLibrary && !inLibraryApproach && !inLibraryCorner) ||
       walkSurfaceAt(x, z, footHeight) > footHeight + stepHeight) return false;
-  return !blockedByClassroom(x,z,footHeight,colliders,0);
+  return !blockedByClassroom(x,z,footHeight,nearbyColliders(x,z),0);
 }
 
 function blockedByClassroom(x,z,footHeight,obstacles,level) {
@@ -10182,7 +10214,7 @@ function floorUnder(x, z, footHeight) {
   let floor = walkSurfaceAt(x, z, footHeight);
   const upper = nearestLandingY(footHeight) === storey;
   if (!upper && Math.abs(footHeight) > halfStorey) return floor;
-  for (const object of upper ? upperColliders : colliders) {
+  for (const object of (upper ? nearbyUpperColliders : nearbyColliders)(x,z)) {
     if (object.top <= footHeight && object.top > floor &&
         nearBox(x - object.x, z - object.z, object.hw, object.hd, furnitureRadius)) floor = object.top;
   }
@@ -10859,8 +10891,8 @@ function tuneResolution(frameMs, moving) {
     return;
   }
   averageFrameMs += (Math.min(frameMs, 100) - averageFrameMs) * .15;
-  slowFrames = averageFrameMs > 42 ? slowFrames + 1 : 0;
-  fastFrames = averageFrameMs < 20 ? fastFrames + 1 : 0;
+  slowFrames = averageFrameMs > 22 ? slowFrames + 1 : 0;
+  fastFrames = averageFrameMs < 18 ? fastFrames + 1 : 0;
   const current = renderer.getPixelRatio();
   const minimum = Math.min(nativePixelRatio, .7);
   if (slowFrames >= 8 && current > minimum) {
@@ -10872,6 +10904,8 @@ function tuneResolution(frameMs, moving) {
   }
 }
 
+let lastDynamicShadowTime = -Infinity;
+let pendingShadow = false;
 function frameLoop(time) {
   const frameMs = time - lastTime;
   const dt = clamp(frameMs / 1000, 0, .05);
@@ -10884,8 +10918,16 @@ function frameLoop(time) {
   transmit(time);
   const moving = !camera.position.equals(previousPosition) || !camera.rotation.equals(previousRotation);
   tuneResolution(frameMs, moving);
-  if (viewDirty || moving) {
-    renderSchool(shadowsDirty);
+  pendingShadow = !nightMode && (pendingShadow || shadowsDirty);
+  // Animate the geometry every frame. Refresh sunlight at 12 Hz during motion
+  // and immediately settle the final shadow once the animation stops.
+  const refreshShadow = pendingShadow && (!shadowsDirty || time - lastDynamicShadowTime >= 1000 / 12);
+  if (viewDirty || moving || refreshShadow) {
+    renderSchool(refreshShadow, viewDirty);
+    if (refreshShadow) {
+      lastDynamicShadowTime = time;
+      pendingShadow = false;
+    }
     viewDirty = false; shadowsDirty = false;
   }
   requestAnimationFrame(frameLoop);
