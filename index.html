@@ -5568,7 +5568,7 @@ buildEndCorridorWindow(0,scene);
 // Only the second-floor corridor extends one fountain length into the gym.
 const sportsFountainLength = 1.20;
 const sportsEntranceZ = corridorFront - sportsFountainLength;
-const gymFixtureBay = { start: .07, end: 2.81, depth: .60 };
+const gymFixtureBay = { start: .07, end: 2.81, depth: 1.60 };
 const stackedCorridorBack = oppositePlanZ(mapLayout.stackedCorridorEnd);
 // The upper and lower corridors share stairwell openings with the main floor.
 function sanitaryWalkable(x, z, spaces, interiors) {
@@ -6060,11 +6060,22 @@ function buildSportsRoom() {
   plane(bay.depth,baySpan,bayX,0,bayZ,floorFinish,{parent:entry,rx:-Math.PI/2,shadow:false});
   front(bay.depth,.06,baySpan,bayX,height+.03,bayZ,acoustic);
   front(.12,height,baySpan,backX-.06,height/2,bayZ,hallWall);
+  registerAimBarrier(.12,height,baySpan,backX-.06,height/2,bayZ,entryParts);
   obstacle(backX-.06,bayZ,.12,baySpan);
+  // The corridor facade already closes the outermost 15 cm of each return.
+  const returnDepth=bay.depth-.15;
   for(const returnZ of [bay.start-.03,bay.end+.03]){
-    front(bay.depth,height,.06,bayX,height/2,returnZ,hallWall);
+    front(returnDepth,height,.06,backX+returnDepth/2,height/2,returnZ,hallWall);
     registerAimBarrier(bay.depth,height,.06,bayX,height/2,returnZ,entryParts);
     obstacle(bayX,returnZ,bay.depth,.06);
+  }
+  // Butt the three painted faces together at the corners at each finish height.
+  for(const [bottom,top,thickness,finish] of [[.088,corridorSill,.012,hallGreen],[0,.088,.0175,hallSkirting]]){
+    const h=top-bottom, y=(top+bottom)/2;
+    front(thickness,h,baySpan,backX+thickness/2,y,bayZ,finish);
+    for(const z of [bay.start+thickness/2,bay.end-thickness/2]){
+      front(bay.depth,h,thickness,bayX+thickness,y,z,finish);
+    }
   }
   const fountainZ=2.18, cupboardZ=1.03;
   const dispenser=joint(entry,backX+.53,0,fountainZ);
