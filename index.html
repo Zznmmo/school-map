@@ -266,9 +266,7 @@ const [, liftApproachEnd] = plan.oppositeSide.find(([, , , kind]) => kind === 'l
 const liftWallExtension = Math.max(0, (plan.liftServiceWallWidth ?? 1.55) - 1.55);
 const oppositePlanZ = unit => planZ(unit) + (unit >= liftApproachEnd ? liftWallExtension : 0);
 const corridorFront = planZ(plan.corridorSpan[0]), corridorBack = oppositePlanZ(plan.corridorSpan[1]);
-// The fountain side of the gym and the library above share this outward extension.
-const wingExtension = 1.50;
-const libraryBounds = { minX: hallwayLibraryCenter() - 7.3 - wingExtension, maxX: hallwayLibraryCenter() + 7.3,
+const libraryBounds = { minX: hallwayLibraryCenter() - 7.3, maxX: hallwayLibraryCenter() + 7.3,
   minZ: corridorFront - 11.8, maxZ: corridorFront };
 function hallwayLibraryCenter() { return right + corridorDepth / 2; }
 const libraryToiletZ = planZ(185);
@@ -291,7 +289,7 @@ const libraryWashroom = { id: 'library-washroom', label: '도서관 옆 양치�
   minZ: libraryRestroomEnd - .43, maxZ: libraryStairMinZ - .25, entryMinZ: libraryWashEntryMinZ };
 const libraryAlcoveWallThickness = .15;
 const libraryApproachSpaces = [
-  { minX: right - 2.65 - wingExtension, maxX: right, minZ: corridorFront, maxZ: corridorFront + 3.2 }
+  { minX: right - 2.65, maxX: right, minZ: corridorFront, maxZ: corridorFront + 3.2 }
 ];
 const additionalClassrooms = plan.classroomSide.filter(([, , , id]) => id)
   .map(([from, to, label, id]) => ({ id, label, frontZ: planZ(from), backZ: planZ(to) }));
@@ -5579,8 +5577,6 @@ function sanitaryWalkable(x, z, spaces, interiors) {
 }
 
 function stackedHallWalkable(x, z, footHeight) {
-  if (nearestLandingY(footHeight) === -storey && x >= right-wingExtension+playerRadius && x <= right+playerRadius &&
-      z >= corridorFront+playerRadius && z <= gymHallFront-.15-playerRadius) return true;
   if (nearestLandingY(footHeight) === -storey && z <= corridorFront+playerRadius+.02 && sportsRoomWalkable(x,z)) return true;
   if (nearestLandingY(footHeight) === -storey && x >= corridorRight - playerRadius &&
       z < libraryStairMinZ && sanitaryWalkable(x, z, gymSanitarySpaces, gymRestrooms)) return true;
@@ -5923,6 +5919,7 @@ hallFrontages(firstFloorHall, firstFloorY, stairEntryTo, endStairWindowMinZ-.08,
   ['화장실', 'utility', 4], ['유희실', 'class', 9], ['유치원 원무실', 'office', 7],
   ['수면실', 'room', 4], ['셔터', 'shutter', 2]
 ], endStairMinZ-.08);
+hallFrontages(secondFloorHall, -storey, corridorFront, gymHallFront, true, [['', 'wall', 1]]);
 buildGymHall();
 hallFrontages(secondFloorHall, -storey, firstClassWing, stackedCorridorBack, true, [
   ['1-가람', 'class', 7.14], ['1-나눔', 'class', 7.52], ['1-다움', 'class', 7.42],
@@ -5962,7 +5959,7 @@ hallFrontages(fourthFloorHall, storey, stairEntryTo, stackedEndStairZ, false, [
 
 // The room extends beyond the end of the main 2F corridor. Its dimensions are
 // estimated from the video, with the existing corridor and door as references.
-const sportsRoom = { left: -2.30-wingExtension, right: 11.10, depth: 9.40, leafWidth: .91 };
+const sportsRoom = { left: -2.30, right: 11.10, depth: 9.40, leafWidth: .91 };
 const sportsLeaves = [];
 const sportsInterior = new THREE.Group();
 secondFloorHall.add(sportsInterior);
@@ -5999,7 +5996,7 @@ function buildSportsRoom() {
   for (const [a,b] of [[lo,-w-.055],[w+.055,hi]]) {
     front(b-a,height,.12,(a+b)/2,height/2,-.01,yellow);
     front(b-a,.083,.016,(a+b)/2,.043,-.081,skirt);
-    const edgeA=Math.max(a,-corridorDepth/2-wingExtension), edgeB=Math.min(b,corridorDepth/2);
+    const edgeA=Math.max(a,-corridorDepth/2), edgeB=Math.min(b,corridorDepth/2);
     if(edgeB>edgeA) {
       front(edgeB-edgeA,height,.018,(edgeA+edgeB)/2,height/2,.06,creamWall);
       front(edgeB-edgeA,.94,.021,(edgeA+edgeB)/2,.47,.076,doorMaple);
@@ -6046,45 +6043,36 @@ function buildSportsRoom() {
       entranceHitsLeaf(player.x-hallwayX,player.z-corridorFront,leaf,next);
   }
 
-  // The alcove ends against the back of the existing auditorium wall. Keep its
-  // front edge on the gym side of that wall so the side corridor stays clear.
-  const aisleX=-corridorDepth/2, backX=aisleX-wingExtension;
-  const bayEnd=gymHallFront-corridorFront-.15, nicheDepth=.60, faceX=backX+nicheDepth;
-  const nicheWidth=1.30, nicheHeight=1.66, nicheEnd=bayEnd-.05, nicheStart=nicheEnd-nicheWidth;
-  const fountainZ=(nicheStart+nicheEnd)/2;
-  const bayMid=aisleX-wingExtension/2;
-  plane(wingExtension,bayEnd,bayMid,-.001,bayEnd/2,hallFloorMaterial(bayEnd),
-    {parent:entry,rx:-Math.PI/2,shadow:false}).name='himchan-fountain-bay-floor';
-  front(wingExtension,.045,bayEnd,bayMid,height+.0225,bayEnd/2,acoustic);
-  front(wingExtension,height,.012,bayMid,height/2,bayEnd-.006,creamWall);
-  front(.12,height,bayEnd,backX-.06,height/2,bayEnd/2,creamWall);
-  obstacle(backX-.06,bayEnd/2,.12,bayEnd);
-  for(const [a,b] of [[0,nicheStart],[nicheEnd,bayEnd]]){
-    front(nicheDepth,height,b-a,backX+nicheDepth/2,height/2,(a+b)/2,creamWall);
-    obstacle(backX+nicheDepth/2,(a+b)/2,nicheDepth,b-a);
-  }
-  front(nicheDepth,height-nicheHeight,nicheWidth,backX+nicheDepth/2,(height+nicheHeight)/2,fountainZ,creamWall);
-  const dispenser=joint(entry,backX+.515,0,fountainZ);
-  dispenser.name='himchan-recessed-fountain';
+  const wallX=-corridorDepth/2;
+  const cabinetZ=1.33, cabinetSpan=1.05, cabinetDepth=.50;
+  const fountainSpan=1.20, fountainZ=cabinetZ+(cabinetSpan+fountainSpan)/2;
+  const wallStart=gymHallFront-corridorFront, wallEnd=fountainZ+fountainSpan/2+.10;
+  const wallSpan=wallEnd-wallStart, wallCenter=(wallStart+wallEnd)/2;
+  // Continue the existing corner wall behind the whole fountain, up to the ceiling.
+  const returnDepth=.48;
+  front(returnDepth,height,wallSpan,wallX-returnDepth/2,height/2,wallCenter,creamWall);
+  obstacle(wallX-returnDepth/2,wallCenter,returnDepth,wallSpan);
+  const fountainFace=wallX+.515; // The cabinet back is .515 behind its local origin.
+  const dispenser=joint(entry,fountainFace,0,fountainZ);
   dispenser.rotation.y=Math.PI/2;
   buildDrinkingFountain(dispenser,'himchan-fountain',Math.PI/2,()=>Math.abs(player.jumpHeight+storey)<.85);
-  obstacle(backX+nicheDepth/2,fountainZ,nicheDepth,nicheWidth);
-  // The cupboard turns the corner onto the entrance wall, leaving the tap clear.
-  const cabinetWidth=1.05, cabinetX=faceX+cabinetWidth/2;
-  front(cabinetWidth,2.60,.31,cabinetX,1.30,.23,maple);
-  for(const side of [-1,1]){
-    front(.51,2.53,.020,cabinetX+side*.26,1.29,.395,doorMaple);
-    front(.017,.13,.030,cabinetX+side*.075,1.10,.42,steel);
+  obstacle(wallX+.27,fountainZ,.54,fountainSpan);
+  front(.52,height,.10,wallX+.26,height/2,wallEnd-.05,maple);
+  obstacle(wallX+.26,wallEnd-.05,.52,.10);
+  front(cabinetDepth,2.60,cabinetSpan,wallX+cabinetDepth/2,1.30,cabinetZ,maple);
+  for(const v of [cabinetZ-.25,cabinetZ+.25]){
+    front(.020,2.53,.50,wallX+cabinetDepth+.01,1.29,v,doorMaple);
+    front(.030,.13,.017,wallX+cabinetDepth+.033,1.10,v+(v<cabinetZ?.17:-.17),steel);
   }
-  obstacle(cabinetX,.25,cabinetWidth,.38);
+  obstacle(wallX+.26,cabinetZ,.52,cabinetSpan);
   const hoopGeo=new THREE.TorusGeometry(.397,.018,8,52);
   const hoopPaint=['#66ab59','#f3c549','#ec7167','#51a7c3','#9b76aa'].map(c=>surface(c,{roughness:.48}));
   for(let i=0;i<9;i++){
     const radiusScale=1+(i%3)*.055;
-    place(hoopGeo,hoopPaint[i%hoopPaint.length],aisleX+.40+i*.014,.424*radiusScale,.42+i*.023,
-      {...entryParts,rx:-.22-i*.026,ry:.94+(i%3)*.12,sx:radiusScale,sy:radiusScale,shadow:false});
+    place(hoopGeo,hoopPaint[i%hoopPaint.length],wallX+.54+i*.022,.424*radiusScale,.39+i*.039,
+      {...entryParts,rx:-.22-i*.026,ry:.12+(i%3)*.12,sx:radiusScale,sy:radiusScale,shadow:false});
   }
-  obstacle(aisleX+.46,.53,.56,.79);
+  obstacle(wallX+.61,.56,.89,.48);
 
   const wood=woodTexture(11,{hue:36,saturation:48,light:67,variation:4});
   wood.repeat.set(3,4);
@@ -8092,8 +8080,6 @@ connectTeacherComputer(teacherDesk, daumBoardScreen, 'daum-');
 for(const wing of classroomWings)batchExteriorWindows(wing);
 // Library coordinates: u across the entrance, d away from the corridor.
 const libraryCenterX = hallwayX, libraryFront = libraryBounds.maxZ, libraryDepth = 11.8;
-const libraryLeft=libraryBounds.minX-libraryCenterX, libraryRight=libraryBounds.maxX-libraryCenterX;
-const libraryWidth=libraryRight-libraryLeft, libraryMid=(libraryLeft+libraryRight)/2;
 const libraryWood = surface('#bc9870', { map: joineryMap, roughness: .56 });
 const libraryUpright = surface('#b99776', { map: uprightMap, roughness: .60 });
 const libraryCream = surface('#ede9dd', { map: wallMap, roughness: .87 });
@@ -8117,17 +8103,17 @@ function libraryText(title,subtitle='',tint='#4b705b') {
 }
 
 // Envelope, with a continuous threshold and a lower raised reading deck.
-plane(libraryWidth,libraryDepth,libraryCenterX+libraryMid,0,libraryFront-libraryDepth/2,hallFloorMaterial(libraryDepth,.49),
+plane(14.6,libraryDepth,libraryCenterX,0,libraryFront-libraryDepth/2,hallFloorMaterial(libraryDepth,.49),
   {rx:-Math.PI/2,shadow:false}).name='library-floor';
-libBox(libraryWidth,.10,libraryDepth,libraryMid,-.055,libraryDepth/2,hallWall);
-libBox(libraryWidth,.15,libraryDepth,libraryMid,height+.075,libraryDepth/2,acoustic);
-for(const [edge,side] of [[libraryLeft,-1],[libraryRight,1]]){
-  libBox(.15,height,libraryDepth,edge+side*.075,height/2,libraryDepth/2,libraryCream);
-  libSolid(.15,libraryDepth,edge+side*.075,libraryDepth/2);
-  libBox(.024,.095,libraryDepth-.012,edge-side*.012,.0475,libraryDepth/2,hallSkirting);
+libBox(14.6,.10,libraryDepth,0,-.055,libraryDepth/2,hallWall);
+libBox(14.6,.15,libraryDepth,0,height+.075,libraryDepth/2,acoustic);
+for(const side of [-1,1]){
+  libBox(.15,height,libraryDepth,side*7.375,height/2,libraryDepth/2,libraryCream);
+  libSolid(.15,libraryDepth,side*7.375,libraryDepth/2);
+  libBox(.024,.095,libraryDepth-.012,side*7.288,.0475,libraryDepth/2,hallSkirting);
 }
 const entranceHalf=1.48;
-for(const [a,b]of [[libraryLeft,-entranceHalf],[entranceHalf,libraryRight]]){
+for(const [a,b]of [[-7.3,-entranceHalf],[entranceHalf,7.3]]){
   libBox(b-a,height,.15,(a+b)/2,height/2,.075,libraryCream);
   libSolid(b-a,.15,(a+b)/2,.075);
 }
@@ -8280,19 +8266,18 @@ function libraryDoorBlocked(x,z,footHeight=0){
 }
 
 // Window wall and a continuous rear reading counter.
-libBox(libraryWidth,.82,.15,libraryMid,.41,libraryDepth+.075,libraryCream);
-libBox(libraryWidth,.18,.15,libraryMid,height-.09,libraryDepth+.075,libraryCream);
-libSolid(libraryWidth,.15,libraryMid,libraryDepth+.075);
-const windowBayWidth=libraryWidth/8;
-for(let i=0;i<=8;i++)libBox(.05,2.05,.12,libraryLeft+i*windowBayWidth,1.845,libraryDepth,frame);
-for(const y of [.84,2.35,2.88])libBox(libraryWidth,.044,.13,libraryMid,y,libraryDepth,frame);
-libFace(libraryWidth-.15,2.0,libraryMid,1.86,libraryDepth+.018,outdoorGlass);
+libBox(14.6,.82,.15,0,.41,libraryDepth+.075,libraryCream);
+libBox(14.6,.18,.15,0,height-.09,libraryDepth+.075,libraryCream);
+libSolid(14.6,.15,0,libraryDepth+.075);
+for(let i=0;i<=8;i++)libBox(.05,2.05,.12,-7.3+i*14.6/8,1.845,libraryDepth,frame);
+for(const y of [.84,2.35,2.88])libBox(14.6,.044,.13,0,y,libraryDepth,frame);
+libFace(14.45,2.0,0,1.86,libraryDepth+.018,outdoorGlass);
 for(let i=0;i<8;i++){
-  const u=libraryLeft+(i+.5)*windowBayWidth;
-  libBox(windowBayWidth-.055,.29,.026,u,2.69,libraryDepth-.05,libraryGreen,{radius:.005});
-  libBox(1.15,.04,.52,u,.98,libraryDepth-.37,libraryWood,{radius:.014});
-  libSolid(1.15,.52,u,libraryDepth-.37,1.0);
-  for(const dx of [-.45,.45])libBox(.028,.96,.035,u+dx,.48,libraryDepth-.39,steel);
+  libBox(1.77,.29,.026,-6.38+i*1.825,2.69,libraryDepth-.05,libraryGreen,{radius:.005});
+  libBox(1.15,.04,.52,-6.26+i*1.79,.98,libraryDepth-.37,libraryWood,{radius:.014});
+  libSolid(1.15,.52,-6.26+i*1.79,libraryDepth-.37,1.0);
+  for(const dx of [-.45,.45])libBox(.028,.96,.035,-6.26+i*1.79+dx,.48,libraryDepth-.39,steel);
+  const u=-6.26+i*1.79;
   libBox(.34,.045,.32,u,.61,libraryDepth-1.02,librarySeat,{radius:.03});
   libBox(.34,.25,.035,u,.78,libraryDepth-.90,librarySeat,{radius:.02});
   for(const dx of [-.13,.13])for(const dz of [-.11,.11])libBox(.022,.59,.024,u+dx,.295,libraryDepth-1.02+dz,steel);
@@ -8309,10 +8294,10 @@ for(const u of [-3.6,3.6]){
   const unit=ceilingCassette.clone();unit.position.set(libraryCenterX+u,unit.position.y,libraryFront-5.6);scene.add(unit);
 }
 
-const deckLevel=.10,deckX=-4.86-wingExtension/2,deckWidth=4.72+wingExtension,deckDepth=9.8,deckCenter=6.0;
-libBox(deckWidth,deckLevel,deckDepth,deckX,deckLevel/2,deckCenter,libraryUpright,{radius:.012});
-plane(deckWidth-.03,deckDepth-.025,libraryCenterX+deckX,deckLevel+.001,libraryFront-deckCenter,floor,{rx:-Math.PI/2,shadow:false});
-walkSurfaces.push({x:libraryCenterX+deckX,z:libraryFront-deckCenter,hw:deckWidth/2,hd:deckDepth/2,y:deckLevel});
+const deckLevel=.10,deckX=-4.86,deckDepth=9.8,deckCenter=6.0;
+libBox(4.72,deckLevel,deckDepth,deckX,deckLevel/2,deckCenter,libraryUpright,{radius:.012});
+plane(4.69,deckDepth-.025,libraryCenterX+deckX,deckLevel+.001,libraryFront-deckCenter,floor,{rx:-Math.PI/2,shadow:false});
+walkSurfaces.push({x:libraryCenterX+deckX,z:libraryFront-deckCenter,hw:2.36,hd:deckDepth/2,y:deckLevel});
 const libraryBookColors=['#3f586d','#80584e','#c1a273','#617e61','#776380','#c9c7b7','#c9b994','#38686b','#a96e68','#747143'].map(c=>surface(c,{roughness:.83}));
 const libraryBookLabel=surface('#e0d7bc',{roughness:.96});
 function libraryShelf(w,h,u,d,{yaw=0,base=0,levels=4,depth=.43,doubleSided=false,name='library-bookcase'}={}){
@@ -8345,11 +8330,11 @@ function libraryShelf(w,h,u,d,{yaw=0,base=0,levels=4,depth=.43,doubleSided=false
   return root;
 }
 // Wall shelves, with two recessed circular reading seats between them.
-for(const d of [2.6,5.7,8.8])libraryShelf(1.76,2.37,libraryLeft+.26,d,{yaw:Math.PI/2,base:deckLevel,levels:6,depth:.45});
+for(const d of [2.6,5.7,8.8])libraryShelf(1.76,2.37,-7.04,d,{yaw:Math.PI/2,base:deckLevel,levels:6,depth:.45});
 for (const d of [4.15, 7.25]) {
   const root = new THREE.Group();
   root.name = 'library-round-reading-nook';
-  root.position.set(libraryBounds.minX + .26, deckLevel, libraryFront - d);
+  root.position.set(libraryCenterX - 7.04, deckLevel, libraryFront - d);
   root.rotation.y = Math.PI / 2;
   scene.add(root);
   // The seat occupies the full bay between two shelves, with its rim at the shelf face.
@@ -8363,7 +8348,7 @@ for (const d of [4.15, 7.25]) {
   mesh(new THREE.CircleGeometry(.567, 72), libraryWood, 0, .81, -.218, {parent: root});
   mesh(new THREE.TorusGeometry(.57, .015, 8, 72), frame, 0, .81, .226, {parent: root});
   box(.71, .060, .38, 0, .375, .003, librarySeat, {parent: root, radius: .021});
-  libSolid(.45, 1.338, libraryLeft+.26, d, deckLevel + 2.37);
+  libSolid(.45, 1.338, -7.04, d, deckLevel + 2.37);
 }
 // Small tables on the raised deck: rounded tops and thin cylindrical legs.
 for(const [u,d]of [[-4.9,2.8],[-4.75,5.8],[-4.8,8.7]]){
@@ -8380,8 +8365,8 @@ const frieze=libraryPrint(2048,80,(g,w,h)=>{
   g.fillStyle='#4e6651';g.textAlign='center';g.font='bold 42px "Malgun Gothic"';
   g.fillText('책을 읽을 때 우리는 가장 좋은 친구와 함께합니다.',w/2,55,w-70);
 });
-box(.035,.36,8.8,libraryBounds.minX+.07,2.68,libraryFront-5.7,libraryUpright,{batch:true});
-plane(8.8,.34,libraryBounds.minX+.095,2.68,libraryFront-5.7,frieze,{ry:Math.PI/2,shadow:false});
+box(.035,.36,8.8,libraryCenterX-7.23,2.68,libraryFront-5.7,libraryUpright,{batch:true});
+plane(8.8,.34,libraryCenterX-7.205,2.68,libraryFront-5.7,frieze,{ry:Math.PI/2,shadow:false});
 
 function libraryArc(inner,outer,start,end,thickness){
   const shape=new THREE.Shape();shape.absarc(0,0,outer,start,end,false);
