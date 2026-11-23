@@ -5565,6 +5565,9 @@ function buildEndCorridorWindow(level, parent) {
 }
 buildEndCorridorWindow(0,scene);
 
+// Only the second-floor corridor extends one fountain length into the gym.
+const sportsFountainLength = 1.20;
+const sportsEntranceZ = corridorFront - sportsFountainLength;
 const stackedCorridorBack = oppositePlanZ(mapLayout.stackedCorridorEnd);
 // The upper and lower corridors share stairwell openings with the main floor.
 function sanitaryWalkable(x, z, spaces, interiors) {
@@ -5577,7 +5580,8 @@ function sanitaryWalkable(x, z, spaces, interiors) {
 }
 
 function stackedHallWalkable(x, z, footHeight) {
-  if (nearestLandingY(footHeight) === -storey && z <= corridorFront+playerRadius+.02 && sportsRoomWalkable(x,z)) return true;
+  const hallFront = nearestLandingY(footHeight) === -storey ? sportsEntranceZ : corridorFront;
+  if (nearestLandingY(footHeight) === -storey && z <= sportsEntranceZ+playerRadius+.02 && sportsRoomWalkable(x,z)) return true;
   if (nearestLandingY(footHeight) === -storey && x >= corridorRight - playerRadius &&
       z < libraryStairMinZ && sanitaryWalkable(x, z, gymSanitarySpaces, gymRestrooms)) return true;
   if (nearestLandingY(footHeight) === storey && x >= left + playerRadius && x <= right + playerRadius &&
@@ -5585,7 +5589,7 @@ function stackedHallWalkable(x, z, footHeight) {
   if (nearestLandingY(footHeight) === firstFloorY && entranceWalkable(x,z)) return true;
   if (nearestLandingY(footHeight) === -storey && x >= gymHallEndX + playerRadius && x <= right + playerRadius &&
       z >= gymHallFront + playerRadius && z <= firstClassWing - playerRadius) return true;
-  if (z < corridorFront + playerRadius || z > corridorBack - playerRadius || x < right + playerRadius) return false;
+  if (z < hallFront + playerRadius || z > corridorBack - playerRadius || x < right + playerRadius) return false;
   if (x <= corridorRight - playerRadius) return true;
   const atLibraryStair = z >= libraryStairMinZ + playerRadius && z <= libraryStairMaxZ - playerRadius;
   const atLift = z >= liftBayFrom + playerRadius && z <= stairEntryTo - playerRadius;
@@ -5919,7 +5923,8 @@ hallFrontages(firstFloorHall, firstFloorY, stairEntryTo, endStairWindowMinZ-.08,
   ['화장실', 'utility', 4], ['유희실', 'class', 9], ['유치원 원무실', 'office', 7],
   ['수면실', 'room', 4], ['셔터', 'shutter', 2]
 ], endStairMinZ-.08);
-hallFrontages(secondFloorHall, -storey, corridorFront, gymHallFront, true, [['', 'wall', 1]]);
+hallFrontages(secondFloorHall, -storey, sportsEntranceZ, gymHallFront, true, [['', 'wall', 1]]);
+hallFrontages(secondFloorHall, -storey, sportsEntranceZ, corridorFront, false, [['', 'wall', 1]]);
 buildGymHall();
 hallFrontages(secondFloorHall, -storey, firstClassWing, stackedCorridorBack, true, [
   ['1-가람', 'class', 7.14], ['1-나눔', 'class', 7.52], ['1-다움', 'class', 7.42],
@@ -5959,16 +5964,16 @@ hallFrontages(fourthFloorHall, storey, stairEntryTo, stackedEndStairZ, false, [
 
 // The room extends beyond the end of the main 2F corridor. Its dimensions are
 // estimated from the video, with the existing corridor and door as references.
-const sportsRoom = { left: -2.30, right: 11.10, depth: 9.40, leafWidth: .91 };
+const sportsRoom = { left: -2.30, right: 11.10, depth: 9.40-sportsFountainLength, leafWidth: .91 };
 const sportsLeaves = [];
 const sportsInterior = new THREE.Group();
 secondFloorHall.add(sportsInterior);
 const sportsPortal = new THREE.Box3(
-  new Vector3(hallwayX-sportsRoom.leafWidth,-storey,corridorFront-.13),
-  new Vector3(hallwayX+sportsRoom.leafWidth,-storey+2.30,corridorFront+.13));
+  new Vector3(hallwayX-sportsRoom.leafWidth,-storey,sportsEntranceZ-.13),
+  new Vector3(hallwayX+sportsRoom.leafWidth,-storey+2.30,sportsEntranceZ+.13));
 
 function sportsRoomWalkable(x,z) {
-  const u=x-hallwayX, v=z-corridorFront, r=playerRadius;
+  const u=x-hallwayX, v=z-sportsEntranceZ, r=playerRadius;
   return (v>=-sportsRoom.depth+r && v<=-r && u>=sportsRoom.left+r && u<=sportsRoom.right-r) ||
     (Math.abs(v)<=r+.02 && Math.abs(u)<=sportsRoom.leafWidth-r);
 }
@@ -5976,15 +5981,15 @@ function sportsRoomWalkable(x,z) {
 function buildSportsRoom() {
   const {left:lo, right:hi, depth, leafWidth:w}=sportsRoom;
   const mid=(lo+hi)/2, span=hi-lo;
-  const entry=joint(secondFloorHall,hallwayX,-storey,corridorFront);
-  const inside=joint(sportsInterior,hallwayX,-storey,corridorFront);
+  const entry=joint(secondFloorHall,hallwayX,-storey,sportsEntranceZ);
+  const inside=joint(sportsInterior,hallwayX,-storey,sportsEntranceZ);
   entry.name='himchan-gym-entrance';
   inside.name='himchan-gym-interior';
   const entryParts={parent:entry,batch:true,batchRoot:secondFloorHall};
   const roomParts={parent:inside,batch:true,batchRoot:sportsInterior};
   const front=(width,h,d,x,y,z,mat)=>box(width,h,d,x,y,z,mat,entryParts);
   const part=(width,h,d,x,y,z,mat)=>box(width,h,d,x,y,z,mat,roomParts);
-  const obstacle=(u,v,width,d,top=Infinity)=>solid(hallwayX+u,corridorFront+v,width,d,0,top,-storey);
+  const obstacle=(u,v,width,d,top=Infinity)=>solid(hallwayX+u,sportsEntranceZ+v,width,d,0,top,-storey);
   const yellow=surface('#f2da7b',{roughness:.86});
   const maroon=surface('#873146',{roughness:.61});
   const skirt=surface('#594c48',{roughness:.72});
@@ -6040,15 +6045,14 @@ function buildSportsRoom() {
     sportsLeaves.push(leaf);
     prop.onUse=()=>{prop.open=!prop.open;};
     prop.blocksMotion=next=>Math.abs(player.jumpHeight+storey)<2.30 &&
-      entranceHitsLeaf(player.x-hallwayX,player.z-corridorFront,leaf,next);
+      entranceHitsLeaf(player.x-hallwayX,player.z-sportsEntranceZ,leaf,next);
   }
 
   const wallX=-corridorDepth/2;
-  front(.10,1.46,1.33,wallX-.009,.73,2.48,creamWall);
   const dispenser=joint(entry,wallX+.51,0,2.48);
   dispenser.rotation.y=Math.PI/2;
   buildDrinkingFountain(dispenser,'himchan-fountain',Math.PI/2,()=>Math.abs(player.jumpHeight+storey)<.85);
-  obstacle(wallX+.26,2.48,.55,1.20);
+  obstacle(wallX+.26,2.48,.55,sportsFountainLength);
   front(.32,2.60,1.05,wallX+.13,1.30,1.33,maple);
   for(const v of [1.08,1.58]){
     front(.020,2.53,.50,wallX+.30,1.29,v,doorMaple);
@@ -6108,7 +6112,8 @@ function buildSportsRoom() {
     wallPart(cursor,end,sill,head,.13,0,yellow);
   }
   windowWall(false,lo,hi,[[lo+.91,lo+2.60],[hi-2.69,hi-.88]]);
-  windowWall(true,-depth,0,[[-depth+.73,-depth+3.10],[-depth+3.60,-depth+6.25],[-depth+6.76,-.72]]);
+  const sideWindows=[[-depth+.73,-depth+3.10],[-depth+3.60,-depth+6.25],[-depth+6.76,-.15]];
+  windowWall(true,-depth,0,sideWindows);
   part(span,.085,.025,mid,.043,-depth+.069,skirt);
   part(4.90,1.25,.045,mid,1.75,-depth+.088,grayPanel);
   for(const u of [lo+.43,lo+3.12,hi-3.14,hi-.44])part(.36,height,.12,u,height/2,-depth+.095,creamWall);
@@ -6149,8 +6154,8 @@ function buildSportsRoom() {
   const reflections=new THREE.Group();reflections.name='sports-window-reflections';inside.add(reflections);
   for(const u of [lo+1.76,hi-1.78])
     plane(2.62,3.35,u,.008,-depth+1.53,daylight,{parent:reflections,rx:-Math.PI/2,shadow:false});
-  for(const v of [-depth+1.91,-depth+4.92,-depth+7.72])
-    plane(3.32,2.75,hi-1.52,.008,v,daylight,{parent:reflections,rx:-Math.PI/2,shadow:false});
+  for(const [a,b] of sideWindows)
+    plane(3.32,b-a,hi-1.52,.008,(a+b)/2,daylight,{parent:reflections,rx:-Math.PI/2,shadow:false});
   sportsInterior.userData.reflections=reflections;
   for(const x of [mid-4,mid,mid+4])for(const z of [-depth*.30,-depth*.73]){
     part(1.09,.034,.24,x,height-.023,z,frame);
@@ -6199,8 +6204,9 @@ function buildStackedHall(name, y, endRoom, endKind = 'room') {
     }
   }
 
-  const stackedLength = hallEnd - corridorFront;
-  const stackedCenter = (hallEnd + corridorFront) / 2;
+  const hallFront = y === -storey ? sportsEntranceZ : corridorFront;
+  const stackedLength = hallEnd - hallFront;
+  const stackedCenter = (hallEnd + hallFront) / 2;
   plane(corridorDepth, stackedLength, hallwayX, y - .001, stackedCenter, hallFloorMaterial(stackedLength),
     { parent: root, rx: -Math.PI / 2, shadow: false }).name = name + '-hall-floor';
   box(corridorDepth, .045, stackedLength, hallwayX, y + height + .0225, stackedCenter, acoustic, parts);
@@ -10173,7 +10179,8 @@ function prepareSchoolView() {
   fourthFloorHall.visible = camera.position.y > height - .15;
   lowerClassroomTrim.visible = camera.position.y < storey || camera.position.x > corridorRight;
   const {x,y,z} = camera.position;
-  const inStackedCorridor = x>=right && x<=corridorRight && z>=corridorFront && z<=corridorBack;
+  const activeHallFront = secondFloorHall.visible ? sportsEntranceZ : corridorFront;
+  const inStackedCorridor = x>=right && x<=corridorRight && z>=activeHallFront && z<=corridorBack;
   if (inStackedCorridor && y < -.15) lowerClassroomTrim.visible = false;
   for (const [level,group] of looseClassroomFloors) {
     group.visible = !inStackedCorridor || (y>=level-.15 && y<=level+storey+.15);
@@ -10181,7 +10188,7 @@ function prepareSchoolView() {
   camera.updateMatrixWorld();
   viewFrustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
     renderer.coordinateSystem);
-  sportsInterior.visible = secondFloorHall.visible && (z <= corridorFront+.25 || viewFrustum.intersectsBox(sportsPortal));
+  sportsInterior.visible = secondFloorHall.visible && (z <= sportsEntranceZ+.25 || viewFrustum.intersectsBox(sportsPortal));
   if (outsideEntrance && viewFrustum.intersectsBox(entranceOpening)) camera.layers.enable(entranceLobbyLayer);
   scienceCorridorInterior.visible = !outsideEntrance || scienceYardWindows.some(window => viewFrustum.intersectsBox(window));
   const onClassroomFloor = camera.position.y >= 0 && camera.position.y <= height;
@@ -10425,7 +10432,7 @@ function free(x, z, footHeight = 0) {
     if (nearestLandingY(footHeight) === firstFloorY && (entranceBlocked(x,z) || groundsBlocked(x,z,footHeight))) return false;
     if (elevatorBlocked(x, z, footHeight)) return false;
     if (nearestLandingY(footHeight) === -storey && (restroomDoorBlocked(x,z,footHeight) ||
-        (Math.abs(z-corridorFront)<1.4 && sportsLeaves.some(leaf=>entranceHitsLeaf(x-hallwayX,z-corridorFront,leaf,leaf.prop.progress))) ||
+        (Math.abs(z-sportsEntranceZ)<1.4 && sportsLeaves.some(leaf=>entranceHitsLeaf(x-hallwayX,z-sportsEntranceZ,leaf,leaf.prop.progress))) ||
         blockedByClassroom(x,z,footHeight,nearbySecondFloorColliders(x,z),-storey))) return false;
     const allowed = stackedHallWalkable(x, z, footHeight) || stairWalkable(x, z, footHeight) || elevatorWalkable(x, z, footHeight);
     if (nearestLandingY(footHeight) === storey && blockedByClassroom(x,z,footHeight,nearbyUpperColliders(x,z),storey)) return false;
@@ -10530,7 +10537,7 @@ function updateHallFill() {
   const {x,z} = camera.position;
   const gymBranch = floorIndex === 1 && z >= gymHallFront && z <= firstClassWing && x >= gymHallEndX;
   const scienceBranch = floorIndex === 2 && z >= scienceFront && z <= scienceBack && x >= scienceEnd;
-  const away = Math.max(0, x-corridorRight, gymBranch || scienceBranch ? 0 : right-x, corridorFront-z, z-corridorBack);
+  const away = Math.max(0, x-corridorRight, gymBranch || scienceBranch ? 0 : right-x, (floorIndex === 1 ? sportsEntranceZ : corridorFront)-z, z-corridorBack);
   hallFill.intensity = .82 * level * (1-THREE.MathUtils.smoothstep(away,0,1.6));
 }
 function toggleNightMode() {
