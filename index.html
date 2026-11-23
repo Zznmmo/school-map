@@ -373,7 +373,7 @@ const doorDefinitions = mapLayout.doors;
 const doors = new Map();
 const props = new Map();
 const colliders = [];
-const upperClassrooms = [], upperColliders = [], gymSanitaryColliders = [];
+const upperClassrooms = [], upperColliders = [], secondFloorColliders = [];
 const walkSurfaces = [];
 const geometryCache = new Map();
 const singlePassGlazing = new Map();
@@ -614,10 +614,9 @@ function plane(w, h, x, y, z, material, options) {
   return mesh(geometry, singlePassGlazing.get(material) ?? material, x, y, z, options);
 }
 
-function solid(x, z, w, d, rotation = 0, top = Infinity) {
+function solid(x, z, w, d, rotation = 0, top = Infinity, level = constructionRoot.position.y) {
   const c = Math.abs(Math.cos(rotation)), s = Math.abs(Math.sin(rotation));
-  const level = constructionRoot.position.y;
-  (level < 0 ? gymSanitaryColliders : level > 0 ? upperColliders : colliders).push({ x, z, hw: (w * c + d * s) / 2, hd: (d * c + w * s) / 2, top: top + level });
+  (level < 0 ? secondFloorColliders : level > 0 ? upperColliders : colliders).push({ x, z, hw: (w * c + d * s) / 2, hd: (d * c + w * s) / 2, top: top + level });
 }
 
 function registerProp(id, label, mover, panel, facing, channel, axis, travel, { actions, onProgress, onUse, getAction, enabled, twoSided = false } = {}) {
@@ -4746,39 +4745,43 @@ fountainBackdrop.rotation.y=Math.PI;scene.add(fountainBackdrop);
 plane(1.60,1.67,0,2.215,.010,sanitaryFinish(sanitaryWallMap,1.60/.60,1.67/.30,'#e3cc4c',.31),{parent:fountainBackdrop,shadow:false});
 const fountain=new THREE.Group();fountain.position.set(fountainX,0,fountainZ);fountain.rotation.y=Math.PI;scene.add(fountain);
 fountain.name='washroom-drinking-fountain';
-const fountainPaint=surface('#80b657',{roughness:.48}),fp={parent:fountain,radius:.009};
-box(1.13,.86,.51,0,.45,-.26,sanitaryWhite,fp);
-box(1.035,.62,.021,0,.45,.006,fountainPaint,fp);
-box(1.20,.045,.56,0,.91,-.25,sanitaryWhite,fp);
-box(1.085,.015,.43,0,.929,-.25,sanitarySteel,fp);
-box(1.20,.49,.045,0,1.16,-.505,sanitaryWhite,fp);
-box(1.11,.128,.017,0,1.306,-.474,fountainPaint,fp);
-box(1.09,.30,.015,0,1.085,-.474,sanitarySteel,fp);
-box(.19,.066,.009,.32,1.306,-.460,dark,{parent:fountain,radius:.004});
-plane(.166,.047,.32,1.306,-.454,simpleSign(256,80,(g,w,h)=>{
-  g.fillStyle='#263c3a';g.fillRect(0,0,w,h);g.fillStyle='#b6d6d0';g.font='25px sans-serif';g.fillText('COLD WATER',12,33);
-  for(const [i,color]of ['#a8d99b','#6ab8de','#bad7ac'].entries()){g.fillStyle=color;g.beginPath();g.arc(47+i*75,58,6,0,Math.PI*2);g.fill();}
-}),{parent:fountain,shadow:false});
-for(const u of [-.43,.43]){
-  mesh(new THREE.CylinderGeometry(.022,.022,.012,16),sanitaryChrome,u,1.16,-.458,{parent:fountain,rx:Math.PI/2});
-  mesh(bentTube([[0,0,0],[0,0,.055],[0,-.022,.075],[0,-.045,.075]],.010,12),sanitaryChrome,u,1.16,-.447,{parent:fountain});
+const fountainPaint=surface('#80b657',{roughness:.48});
+function buildDrinkingFountain(fountain,id,facing,enabled) {
+  const fp={parent:fountain,radius:.009};
+  box(1.13,.86,.51,0,.45,-.26,sanitaryWhite,fp);
+  box(1.035,.62,.021,0,.45,.006,fountainPaint,fp);
+  box(1.20,.045,.56,0,.91,-.25,sanitaryWhite,fp);
+  box(1.085,.015,.43,0,.929,-.25,sanitarySteel,fp);
+  box(1.20,.49,.045,0,1.16,-.505,sanitaryWhite,fp);
+  box(1.11,.128,.017,0,1.306,-.474,fountainPaint,fp);
+  box(1.09,.30,.015,0,1.085,-.474,sanitarySteel,fp);
+  box(.19,.066,.009,.32,1.306,-.460,dark,{parent:fountain,radius:.004});
+  plane(.166,.047,.32,1.306,-.454,simpleSign(256,80,(g,w,h)=>{
+    g.fillStyle='#263c3a';g.fillRect(0,0,w,h);g.fillStyle='#b6d6d0';g.font='25px sans-serif';g.fillText('COLD WATER',12,33);
+    for(const [i,color]of ['#a8d99b','#6ab8de','#bad7ac'].entries()){g.fillStyle=color;g.beginPath();g.arc(47+i*75,58,6,0,Math.PI*2);g.fill();}
+  }),{parent:fountain,shadow:false});
+  for(const u of [-.43,.43]){
+    mesh(new THREE.CylinderGeometry(.022,.022,.012,16),sanitaryChrome,u,1.16,-.458,{parent:fountain,rx:Math.PI/2});
+    mesh(bentTube([[0,0,0],[0,0,.055],[0,-.022,.075],[0,-.045,.075]],.010,12),sanitaryChrome,u,1.16,-.447,{parent:fountain});
+  }
+  for(let i=0;i<7;i++)box(1.03,.003,.010,0,.940,-.37+i*.035,dark,{parent:fountain,radius:.001});
+  for(let i=0;i<4;i++){
+    const u=(i-1.5)*.255;
+    mesh(new THREE.CylinderGeometry(.017,.025,.055,16),sanitaryChrome,u,.968,-.18,{parent:fountain});
+    const handle=new THREE.Group();handle.position.set(u,.993,-.18);fountain.add(handle);
+    const knob=box(.061,.025,.045,0,.006,0,surface('#466a8c',{roughness:.40}),{parent:handle,radius:.007});
+    const stream=mesh(bentTube([[0,0,0],[.005,.10,-.035],[.009,.13,-.08],[.010,.08,-.13],[.010,-.05,-.15]],.0045,20),waterMaterial,u,1.00,-.18,{parent:fountain,shadow:false});
+    stream.name=id+'-stream';stream.visible=false;
+    registerProp(id+'-'+i,'음수대',handle,knob,facing,'rotation','x',-.25,{
+      enabled,
+      onProgress:p=>{stream.visible=p>.04;}
+    });
+  }
+  for(let i=0;i<5;i++)box(.20,.009,.003,.41,.17+i*.032,.020,steel,{parent:fountain,radius:.002});
 }
-for(let i=0;i<7;i++)box(1.03,.003,.010,0,.940,-.37+i*.035,dark,{parent:fountain,radius:.001});
-const fountainStreams=[];
-for(let i=0;i<4;i++){
-  const u=(i-1.5)*.255;
-  mesh(new THREE.CylinderGeometry(.017,.025,.055,16),sanitaryChrome,u,.968,-.18,{parent:fountain});
-  const handle=new THREE.Group();handle.position.set(u,.993,-.18);fountain.add(handle);
-  const knob=box(.061,.025,.045,0,.006,0,surface('#466a8c',{roughness:.40}),{parent:handle,radius:.007});
-  const stream=mesh(bentTube([[0,0,0],[.005,.10,-.035],[.009,.13,-.08],[.010,.08,-.13],[.010,-.05,-.15]],.0045,20),waterMaterial,u,1.00,-.18,{parent:fountain,shadow:false});
-  stream.name='washroom-fountain-stream';stream.visible=false;fountainStreams.push(stream);
-  registerProp('washroom-fountain-'+i,'음수대',handle,knob,Math.PI,'rotation','x',-.25,{
-    enabled:()=>player.x>corridorRight&&player.x<fountainWallX-.05&&player.z>washroomFront&&player.z<washroomBack,
-    onProgress:p=>{stream.visible=p>.04;}
-  });
-}
+buildDrinkingFountain(fountain,'washroom-fountain',Math.PI,
+  ()=>player.x>corridorRight&&player.x<fountainWallX-.05&&player.z>washroomFront&&player.z<washroomBack);
 solid(fountainX,fountainZ+.26,1.16,.54,0,.95);
-for(let i=0;i<5;i++)box(.20,.009,.003,.41,.17+i*.032,.020,steel,{parent:fountain,radius:.002});
 const towel=new THREE.Group();towel.position.set(fountainX-.78,0,washroomBack-.04);towel.rotation.y=Math.PI;scene.add(towel);
 box(.26,.37,.16,0,1.50,.05,sanitaryWhite,{parent:towel,radius:.055}).name='washroom-towel-dispenser';
 box(.18,.012,.035,0,1.326,.11,dark,{parent:towel,radius:.004});
@@ -5574,6 +5577,7 @@ function sanitaryWalkable(x, z, spaces, interiors) {
 }
 
 function stackedHallWalkable(x, z, footHeight) {
+  if (nearestLandingY(footHeight) === -storey && z <= corridorFront+playerRadius+.02 && sportsRoomWalkable(x,z)) return true;
   if (nearestLandingY(footHeight) === -storey && x >= corridorRight - playerRadius &&
       z < libraryStairMinZ && sanitaryWalkable(x, z, gymSanitarySpaces, gymRestrooms)) return true;
   if (nearestLandingY(footHeight) === storey && x >= left + playerRadius && x <= right + playerRadius &&
@@ -5603,7 +5607,7 @@ function hallFrontages(root, y, start, end, classroomSide, rooms, clipEnd = end)
 }
 
 const firstFloorHall = buildStackedHall('first', firstFloorY, '현관', 'entrance');
-const secondFloorHall = buildStackedHall('second', -storey, '힘찬나래관 · 체육실');
+const secondFloorHall = buildStackedHall('second', -storey);
 const fourthFloorHall = buildStackedHall('fourth', storey, '상상이룸실');
 const stairwellLights = [];
 function wireStairwell(id, name, entryZ, entryLightsX, midX, midZ, switchZ, facing) {
@@ -5695,9 +5699,9 @@ function entranceWalkable(x,z) {
 
 function entranceHitsLeaf(u,v,leaf,progress) {
   const t = progress*progress*(3-2*progress);
-  const {side,automatic,laneU,rowV} = leaf, w = entranceLeafWidth;
+  const {side,automatic,laneU,rowV} = leaf, w = leaf.width ?? entranceLeafWidth;
   if (automatic) return nearBox(u-laneU-side*w*(.5+.96*t), v-rowV, w/2, .032);
-  const angle = side*1.52*t, dx = u-laneU-side*w, dz = v-rowV;
+  const angle = leaf.prop.travel*t, dx = u-laneU-side*w, dz = v-rowV;
   return nearBox(Math.cos(angle)*dx-Math.sin(angle)*dz+side*w/2,
     Math.sin(angle)*dx+Math.cos(angle)*dz,w/2,.033);
 }
@@ -5953,6 +5957,208 @@ hallFrontages(fourthFloorHall, storey, stairEntryTo, stackedEndStairZ, false, [
   ['6학년 상담실', 'room', 25]
 ]);
 
+// The room extends beyond the end of the main 2F corridor. Its dimensions are
+// estimated from the video, with the existing corridor and door as references.
+const sportsRoom = { left: -2.30, right: 11.10, depth: 9.40, leafWidth: .91 };
+const sportsLeaves = [];
+const sportsInterior = new THREE.Group();
+secondFloorHall.add(sportsInterior);
+const sportsPortal = new THREE.Box3(
+  new Vector3(hallwayX-sportsRoom.leafWidth,-storey,corridorFront-.13),
+  new Vector3(hallwayX+sportsRoom.leafWidth,-storey+2.30,corridorFront+.13));
+
+function sportsRoomWalkable(x,z) {
+  const u=x-hallwayX, v=z-corridorFront, r=playerRadius;
+  return (v>=-sportsRoom.depth+r && v<=-r && u>=sportsRoom.left+r && u<=sportsRoom.right-r) ||
+    (Math.abs(v)<=r+.02 && Math.abs(u)<=sportsRoom.leafWidth-r);
+}
+
+function buildSportsRoom() {
+  const {left:lo, right:hi, depth, leafWidth:w}=sportsRoom;
+  const mid=(lo+hi)/2, span=hi-lo;
+  const entry=joint(secondFloorHall,hallwayX,-storey,corridorFront);
+  const inside=joint(sportsInterior,hallwayX,-storey,corridorFront);
+  entry.name='himchan-gym-entrance';
+  inside.name='himchan-gym-interior';
+  const entryParts={parent:entry,batch:true,batchRoot:secondFloorHall};
+  const roomParts={parent:inside,batch:true,batchRoot:sportsInterior};
+  const front=(width,h,d,x,y,z,mat)=>box(width,h,d,x,y,z,mat,entryParts);
+  const part=(width,h,d,x,y,z,mat)=>box(width,h,d,x,y,z,mat,roomParts);
+  const obstacle=(u,v,width,d,top=Infinity)=>solid(hallwayX+u,corridorFront+v,width,d,0,top,-storey);
+  const yellow=surface('#f2da7b',{roughness:.86});
+  const maroon=surface('#873146',{roughness:.61});
+  const skirt=surface('#594c48',{roughness:.72});
+  const grayPanel=surface('#a8acb4',{roughness:.94});
+  const white=sanitaryWhite;
+
+  // Seen from the corridor, the hoops are in the left corner, between the
+  // cupboard and the double door. The drinking fountain is farther along that wall.
+  for (const [a,b] of [[lo,-w-.055],[w+.055,hi]]) {
+    front(b-a,height,.12,(a+b)/2,height/2,-.01,yellow);
+    front(b-a,.083,.016,(a+b)/2,.043,-.081,skirt);
+    const edgeA=Math.max(a,-corridorDepth/2), edgeB=Math.min(b,corridorDepth/2);
+    if(edgeB>edgeA) {
+      front(edgeB-edgeA,height,.018,(edgeA+edgeB)/2,height/2,.06,creamWall);
+      front(edgeB-edgeA,.94,.021,(edgeA+edgeB)/2,.47,.076,doorMaple);
+    }
+  }
+  front(2*w+.11,height-2.32,.15,0,(height+2.32)/2,0,creamWall);
+  for(const side of [-1,1])front(.055,2.32,.16,side*(w+.0275),1.16,0,white);
+  front(2*w,.048,.16,0,2.296,0,white);
+  const sign=classSignMaterial('힘찬나래관');
+  plane(.38,.34,-w-.32,1.77,.085,sign,{parent:entry,shadow:false});
+  const stripeWidth=corridorDepth/2-w-.10;
+  const stripes=texture(256,512,(g,width,h)=>{
+    g.fillStyle='#bb8650';g.fillRect(0,0,width,h);
+    for(const [start,color] of [[.16,'#6e8064'],[.54,'#b56660'],[.85,'#c99a58']]){
+      g.fillStyle=color;g.beginPath();g.moveTo(width*start,0);g.lineTo(width*(start+.33),0);
+      g.lineTo(width*(start+.14),h);g.lineTo(width*(start-.19),h);g.fill();
+    }
+  });
+  plane(stripeWidth,2.42,w+.08+stripeWidth/2,1.27,.094,surface('#ffffff',{map:stripes}),{parent:entry});
+  for(const side of [-1,1]){
+    const hinge=joint(entry,side*w,0,0), center=-side*w/2, leafH=2.25;
+    const leafPart=(width,h,d,x,y,z,mat)=>box(width,h,d,x,y,z,mat,{parent:hinge});
+    for(const edge of [-1,1])leafPart(.074,leafH,.064,center+edge*(w-.074)/2,leafH/2,0,white);
+    for(const y of [.055,leafH-.052])leafPart(w-.13,.10,.065,center,y,0,white);
+    leafPart(w-.13,.80,.055,center,.50,0,maroon);
+    leafPart(.078,.058,.058,center,.91,0,white);
+    const tallX=-side*w*.29, glassX=-side*w*.72;
+    leafPart(w*.42,1.26,.056,tallX,1.53,0,maroon);
+    leafPart(.045,1.26,.067,-side*w*.52,1.53,0,white);
+    leafPart(w*.34,.054,.066,glassX,.915,0,white);
+    const glass=plane(w*.33,1.22,glassX,1.55,0,doorwayGlass,{parent:hinge,shadow:false});
+    for(const face of [-1,1]){
+      leafPart(.026,.50,.035,-side*(w-.095),1.03,face*.055,steel);
+      for(const h of [.36,.67,1.09,1.53,1.97])
+        leafPart(.023,.023,.009,tallX,h,face*.031,aluminum);
+    }
+    combineFixedTrim(hinge);
+    const id='himchan-door-'+(side<0?'left':'right');
+    registerProp(id,'힘찬나래관 출입문',hinge,glass,0,'rotation','y',side*1.34,{twoSided:true});
+    const prop=props.get(id), leaf={prop,side,width:w,laneU:0,rowV:0};
+    sportsLeaves.push(leaf);
+    prop.onUse=()=>{prop.open=!prop.open;};
+    prop.blocksMotion=next=>Math.abs(player.jumpHeight+storey)<2.30 &&
+      entranceHitsLeaf(player.x-hallwayX,player.z-corridorFront,leaf,next);
+  }
+
+  const wallX=-corridorDepth/2;
+  front(.10,1.46,1.33,wallX-.009,.73,2.48,creamWall);
+  const dispenser=joint(entry,wallX+.51,0,2.48);
+  dispenser.rotation.y=Math.PI/2;
+  buildDrinkingFountain(dispenser,'himchan-fountain',Math.PI/2,()=>Math.abs(player.jumpHeight+storey)<.85);
+  obstacle(wallX+.26,2.48,.55,1.20);
+  front(.32,2.60,1.05,wallX+.13,1.30,1.33,maple);
+  for(const v of [1.08,1.58]){
+    front(.020,2.53,.50,wallX+.30,1.29,v,doorMaple);
+    front(.030,.13,.017,wallX+.325,1.10,v+(v<1.33?.17:-.17),steel);
+  }
+  obstacle(wallX+.15,1.33,.35,1.05);
+  const hoopGeo=new THREE.TorusGeometry(.397,.018,8,52);
+  const hoopPaint=['#66ab59','#f3c549','#ec7167','#51a7c3','#9b76aa'].map(c=>surface(c,{roughness:.48}));
+  for(let i=0;i<9;i++){
+    const radiusScale=1+(i%3)*.055;
+    place(hoopGeo,hoopPaint[i%hoopPaint.length],wallX+.54+i*.022,.424*radiusScale,.39+i*.039,
+      {...entryParts,rx:-.22-i*.026,ry:.12+(i%3)*.12,sx:radiusScale,sy:radiusScale,shadow:false});
+  }
+  obstacle(wallX+.61,.56,.89,.48);
+
+  const wood=woodTexture(11,{hue:36,saturation:48,light:67,variation:4});
+  wood.repeat.set(3,4);
+  plane(span,depth,mid,-.001,-depth/2,surface('#ffedce',{map:wood,roughness:.48}),
+    {parent:inside,rx:-Math.PI/2,shadow:false}).name='himchan-sports-floor';
+  plane(1.79,.85,0,.004,-.46,surface('#63574d',{roughness:.97}),{parent:inside,rx:-Math.PI/2,shadow:false});
+  const tape=surface('#ba554c',{roughness:.66}), line=.032;
+  const xA=lo+1.55,xB=hi-1.50,zA=-depth+1.55,zB=-1.80;
+  for(const z of [zA,zB])part(xB-xA,.003,line,(xA+xB)/2,.003,z,tape);
+  for(const x of [xA,xB])part(line,.003,zB-zA,x,.003,(zA+zB)/2,tape);
+  part(span,.06,depth,mid,height+.03,-depth/2,acoustic);
+  part(.14,height,depth,lo-.07,height/2,-depth/2,yellow);
+  for(const side of [lo,hi])part(.025,.087,depth,side,.044,-depth/2,skirt);
+
+  // Window bays alternate with solid piers. The right-hand wall has the longer bank.
+  const skyPane=texture(128,256,(g,w,h)=>{
+    const sky=g.createLinearGradient(0,0,0,h);
+    sky.addColorStop(0,'#bad8e9');sky.addColorStop(.58,'#f3f8f5');sky.addColorStop(1,'#dae5df');
+    g.fillStyle=sky;g.fillRect(0,0,w,h);
+  });
+  const windowLight=surface('#ffffff',{map:skyPane,roughness:.28,emissive:'#cbdfeb',emissiveIntensity:.20});
+  function windowWall(sideWall,start,end,windows){
+    const wallPart=(a,b,low,high,thickness,inset,mat)=>{
+      if(sideWall)part(thickness,high-low,b-a,hi-inset,(high+low)/2,(a+b)/2,mat);
+      else part(b-a,high-low,thickness,(a+b)/2,(high+low)/2,-depth+inset,mat);
+    };
+    const sill=1.04,head=2.63;
+    wallPart(start,end,0,sill,.13,0,yellow);
+    wallPart(start,end,head,height,.13,0,yellow);
+    let cursor=start;
+    for(const [a,b] of windows){
+      wallPart(cursor,a,sill,head,.13,0,yellow);
+      wallPart(a,b,sill,head,.022,0,windowLight);
+      const cols=Math.ceil((b-a)/.93);
+      for(let i=0;i<=cols;i++){
+        const u=a+(b-a)*i/cols;
+        wallPart(u-.025,u+.025,sill,head,.085,.02,aluminum);
+      }
+      for(const h of [sill,2.12,head])wallPart(a,b,h-.026,h+.026,.095,.025,aluminum);
+      wallPart(a-.06,b+.06,sill-.045,sill,.16,.03,white);
+      cursor=b;
+    }
+    wallPart(cursor,end,sill,head,.13,0,yellow);
+  }
+  windowWall(false,lo,hi,[[lo+.91,lo+2.60],[hi-2.69,hi-.88]]);
+  windowWall(true,-depth,0,[[-depth+.73,-depth+3.10],[-depth+3.60,-depth+6.25],[-depth+6.76,-.72]]);
+  part(span,.085,.025,mid,.043,-depth+.069,skirt);
+  part(4.90,1.25,.045,mid,1.75,-depth+.088,grayPanel);
+  for(const u of [lo+.43,lo+3.12,hi-3.14,hi-.44])part(.36,height,.12,u,height/2,-depth+.095,creamWall);
+  part(.16,.76,2.53,hi-.095,.49,-depth+4.91,hallGreen);
+  // A clock hangs on the window pier, with a whiteboard and equipment along the entry wall.
+  mesh(new THREE.CylinderGeometry(.17,.17,.035,32),skirt,hi-.10,2.49,-depth+3.35,{parent:inside,rz:Math.PI/2});
+  mesh(new THREE.CircleGeometry(.153,32),displayClock,hi-.121,2.49,-depth+3.35,{parent:inside,ry:-Math.PI/2});
+  part(3.45,1.31,.074,hi-2.60,1.69,-.113,aluminum);
+  part(3.36,1.22,.018,hi-2.60,1.69,-.16,white);
+  part(2.94,.047,.45,hi-2.64,.60,-.40,mapleTop);
+  part(2.94,.035,.41,hi-2.64,.19,-.40,mapleTop);
+  for(const u of [hi-4.02,hi-1.27])for(const v of [-.57,-.23])part(.035,.61,.035,u,.305,v,steel);
+  obstacle(hi-2.64,-.4,2.94,.49,.75);
+  const cone=surface('#eb763a',{roughness:.59});
+  for(const [i,u] of [hi-3.74,hi-3.38].entries()){
+    part(.25,.024,.25,u,.635,-.41,cone);
+    place(new THREE.ConeGeometry(.10,.29+i*.06,16),cone,u,.78+i*.03,-.41,roomParts);
+  }
+  for(const [i,u] of [hi-2.80,hi-2.14,hi-1.57].entries())
+    part(.46,.10,.27,u,.686,-.40,hoopPaint[i]);
+  const stool=surface('#337974',{roughness:.62}), stoolX=hi-3.56;
+  part(.37,.07,.30,stoolX,.35,-.99,stool);
+  for(const dx of [-.145,.145])for(const dz of [-.11,.11])
+    part(.042,.33,.042,stoolX+dx,.165,-.99+dz,stool);
+  obstacle(stoolX,-.99,.37,.30,.39);
+  for(const [i,u] of [lo+.34,lo+.71].entries()){
+    place(new THREE.CylinderGeometry(.15,.13,.44,20),i?skirt:wasteBlue,u,.22,-.37,roomParts);
+    place(new THREE.CircleGeometry(.127,20),dark,u,.443,-.37,{...roomParts,rx:-Math.PI/2});
+    obstacle(u,-.37,.30,.30,.46);
+  }
+  // The bright windows leave soft, elongated reflections on the varnished floor.
+  const glow=texture(128,128,(g,w,h)=>{
+    const light=g.createRadialGradient(w/2,h/2,1,w/2,h/2,w/2);
+    light.addColorStop(0,'rgba(233,243,255,.30)');light.addColorStop(.44,'rgba(224,239,251,.14)');
+    light.addColorStop(1,'rgba(218,235,251,0)');g.fillStyle=light;g.fillRect(0,0,w,h);
+  });
+  const daylight=new THREE.MeshBasicMaterial({map:glow,transparent:true,depthWrite:false});
+  const reflections=new THREE.Group();reflections.name='sports-window-reflections';inside.add(reflections);
+  for(const u of [lo+1.76,hi-1.78])
+    plane(2.62,3.35,u,.008,-depth+1.53,daylight,{parent:reflections,rx:-Math.PI/2,shadow:false});
+  for(const v of [-depth+1.91,-depth+4.92,-depth+7.72])
+    plane(3.32,2.75,hi-1.52,.008,v,daylight,{parent:reflections,rx:-Math.PI/2,shadow:false});
+  sportsInterior.userData.reflections=reflections;
+  for(const x of [mid-4,mid,mid+4])for(const z of [-depth*.30,-depth*.73]){
+    part(1.09,.034,.24,x,height-.023,z,frame);
+    part(1.03,.018,.20,x,height-.047,z,diffuser);
+  }
+}
+buildSportsRoom();
+
 function buildGymHall() {
   const y = -storey, centerX = (gymHallEndX + right) / 2;
   const parts = { parent: secondFloorHall, batch: true, batchRoot: secondFloorHall };
@@ -5981,7 +6187,7 @@ function buildStackedHall(name, y, endRoom, endKind = 'room') {
   root.userData.facadeName = name + '-floor-facade';
   scene.add(root);
   const parts = { parent: root, batch: true, batchRoot: root };
-  hallFacade(endRoom, endKind, hallwayX, corridorFront, corridorDepth, 0, y, root);
+  if (endRoom) hallFacade(endRoom, endKind, hallwayX, corridorFront, corridorDepth, 0, y, root);
   const hallEnd = corridorBack;
   if (y === firstFloorY) hallFacade('', 'wall', hallwayX, hallEnd, corridorDepth, Math.PI, y, root);
   else buildEndCorridorWindow(y,root);
@@ -9975,6 +10181,7 @@ function prepareSchoolView() {
   camera.updateMatrixWorld();
   viewFrustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
     renderer.coordinateSystem);
+  sportsInterior.visible = secondFloorHall.visible && (z <= corridorFront+.25 || viewFrustum.intersectsBox(sportsPortal));
   if (outsideEntrance && viewFrustum.intersectsBox(entranceOpening)) camera.layers.enable(entranceLobbyLayer);
   scienceCorridorInterior.visible = !outsideEntrance || scienceYardWindows.some(window => viewFrustum.intersectsBox(window));
   const onClassroomFloor = camera.position.y >= 0 && camera.position.y <= height;
@@ -10181,7 +10388,7 @@ function indexColliders(obstacles) {
 }
 const nearbyColliders = indexColliders(colliders);
 const nearbyUpperColliders = indexColliders(upperColliders);
-const nearbyGymColliders = indexColliders(gymSanitaryColliders);
+const nearbySecondFloorColliders = indexColliders(secondFloorColliders);
 const clamp = THREE.MathUtils.clamp;
 
 function easeTo(current, target, blend) {
@@ -10218,7 +10425,8 @@ function free(x, z, footHeight = 0) {
     if (nearestLandingY(footHeight) === firstFloorY && (entranceBlocked(x,z) || groundsBlocked(x,z,footHeight))) return false;
     if (elevatorBlocked(x, z, footHeight)) return false;
     if (nearestLandingY(footHeight) === -storey && (restroomDoorBlocked(x,z,footHeight) ||
-        blockedByClassroom(x,z,footHeight,nearbyGymColliders(x,z),-storey))) return false;
+        (Math.abs(z-corridorFront)<1.4 && sportsLeaves.some(leaf=>entranceHitsLeaf(x-hallwayX,z-corridorFront,leaf,leaf.prop.progress))) ||
+        blockedByClassroom(x,z,footHeight,nearbySecondFloorColliders(x,z),-storey))) return false;
     const allowed = stackedHallWalkable(x, z, footHeight) || stairWalkable(x, z, footHeight) || elevatorWalkable(x, z, footHeight);
     if (nearestLandingY(footHeight) === storey && blockedByClassroom(x,z,footHeight,nearbyUpperColliders(x,z),storey)) return false;
     return allowed && walkSurfaceAt(x, z, footHeight) <= footHeight + .19;
@@ -10273,7 +10481,7 @@ function floorUnder(x, z, footHeight) {
   let floor = walkSurfaceAt(x, z, footHeight);
   const level = nearestLandingY(footHeight);
   if (level === firstFloorY) return floor;
-  const nearby = level === storey ? nearbyUpperColliders : level === -storey ? nearbyGymColliders : nearbyColliders;
+  const nearby = level === storey ? nearbyUpperColliders : level === -storey ? nearbySecondFloorColliders : nearbyColliders;
   for (const object of nearby(x,z)) {
     if (object.top <= footHeight && object.top > floor &&
         nearBox(x - object.x, z - object.z, object.hw, object.hd, furnitureRadius)) floor = object.top;
@@ -10301,6 +10509,11 @@ let locked = false;
 let fallback = false;
 let hintTimer;
 let viewDirty = true;
+// As filmed, the right-hand leaf is swung out toward the corridor.
+const openSportsDoor = props.get('himchan-door-right');
+openSportsDoor.open = true;
+openSportsDoor.progress = 1;
+positionProp(openSportsDoor);
 let nightMode = false;
 const nightTint = new THREE.Color('#344364');
 const [daylightSky, nightSky] = await skyReady;
@@ -10334,6 +10547,7 @@ function toggleNightMode() {
     light.intensity = nightMode ? night : day;
     light.visible = light.intensity > 0;
   }
+  sportsInterior.userData.reflections.visible = !nightMode;
   scene.background = nightMode ? nightSky : daylightSky;
   setNeighborhoodNight(nightMode, nightTint);
   curtain.emissiveIntensity = nightMode ? .035 : .33;
