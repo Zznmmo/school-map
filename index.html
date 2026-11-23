@@ -286,7 +286,7 @@ const endStairCenterZ = (endStairMinZ + endStairMaxZ) / 2;
 const libraryWashEntryMinZ = libraryRestroomEnd + .72;
 const libraryWashTurnX = corridorRight + 3.08;
 const libraryWashroom = { id: 'library-washroom', label: '도서관 옆 양치실', minX: corridorRight, maxX: bareumOuterWall,
-  minZ: libraryRestroomEnd - .43, maxZ: libraryStairMinZ - .25 };
+  minZ: libraryRestroomEnd - .43, maxZ: libraryStairMinZ - .25, entryMinZ: libraryWashEntryMinZ };
 const libraryAlcoveWallThickness = .15;
 const libraryApproachSpaces = [
   { minX: right - 2.65, maxX: right, minZ: corridorFront, maxZ: corridorFront + 3.2 }
@@ -373,7 +373,7 @@ const doorDefinitions = mapLayout.doors;
 const doors = new Map();
 const props = new Map();
 const colliders = [];
-const upperClassrooms = [], upperColliders = [];
+const upperClassrooms = [], upperColliders = [], gymSanitaryColliders = [];
 const walkSurfaces = [];
 const geometryCache = new Map();
 const singlePassGlazing = new Map();
@@ -504,8 +504,9 @@ function place(geometry, material, x, y, z, options = {}) {
   const { batch = false, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1, shadow = true, parent = constructionRoot } = options;
   if (!batch) return mesh(geometry, material, x, y, z, options);
   const batchRoot = options.batchRoot;
-  const key = `${geometry.id}/${material.id}/${shadow}/${batchRoot?.id ?? ''}`;
-  if (!batches.has(key)) batches.set(key, { geometry, material, shadow, batchRoot, matrices: [] });
+  const level = constructionRoot.position.y;
+  const key = [geometry.id,material.id,shadow,batchRoot?.id,level].join('/');
+  if (!batches.has(key)) batches.set(key, { geometry, material, shadow, batchRoot, level, matrices: [] });
   pose.position.set(x, y, z);
   pose.rotation.set(rx, ry, rz);
   pose.scale.set(sx, sy, sz);
@@ -616,7 +617,7 @@ function plane(w, h, x, y, z, material, options) {
 function solid(x, z, w, d, rotation = 0, top = Infinity) {
   const c = Math.abs(Math.cos(rotation)), s = Math.abs(Math.sin(rotation));
   const level = constructionRoot.position.y;
-  (level ? upperColliders : colliders).push({ x, z, hw: (w * c + d * s) / 2, hd: (d * c + w * s) / 2, top: top + level });
+  (level < 0 ? gymSanitaryColliders : level > 0 ? upperColliders : colliders).push({ x, z, hw: (w * c + d * s) / 2, hd: (d * c + w * s) / 2, top: top + level });
 }
 
 function registerProp(id, label, mover, panel, facing, channel, axis, travel, { actions, onProgress, onUse, getAction, enabled, twoSided = false } = {}) {
@@ -3776,6 +3777,11 @@ const stairNear = stairEntryFrom, stairRun = 2.60, stairFar = stairNear - stairR
 const halfLandingDepth = 2.20;
 const stairWellFrom = stairFar - halfLandingDepth;
 const stairCount = 10, stairRise = .158, halfStorey = stairCount * stairRise, storey = 2 * halfStorey;
+const gymRestroomLobby = { ...libraryRestroomLobby, id: 'gym-toilet-foyer', label: '힘찬나래관 옆 화장실 공용 입구', level: -storey };
+const gymWashroom = { ...libraryWashroom, id: 'gym-washroom', label: '힘찬나래관 옆 양치실', level: -storey };
+const gymRestrooms = locateRestroomPair(gymRestroomLobby, 'gym-restroom', '힘찬나래관 옆 ', libraryRestroomWidth)
+  .map(room => ({ ...room, level: -storey }));
+const gymSanitarySpaces = [gymRestroomLobby, gymWashroom, ...gymRestrooms];
 const firstFloorY = -2 * storey;
 const landingHeights = [firstFloorY, -storey, 0, storey];
 const flightBases = landingHeights.slice(0, -1);
@@ -4569,7 +4575,7 @@ function sanitaryFloor(x0,x1,z0,z1,kind='washroom',tiled=kind==='washroom') {
   box(w,.06,d,x,height+.030,z,acoustic,{batch:true});
 }
 function sanitaryWall(w,x,z,yaw,{tiled=true}={}) {
-  const root=new THREE.Group();root.position.set(x,0,z);root.rotation.y=yaw;scene.add(root);
+  const root=new THREE.Group();root.position.set(x,0,z);root.rotation.y=yaw;constructionRoot.add(root);
   box(w,height,.12,0,height/2,-.06,tiled?sanitaryWhite:hallWall,{parent:root,batch:true,blocksAim:true});
   const normal=new Vector3(Math.sin(yaw),0,Math.cos(yaw));
   solid(x-normal.x*.06,z-normal.z*.06,w,.12,yaw);
@@ -4635,7 +4641,7 @@ buildRestroomLobby(restroomLobby);
 function installSanitaryLightSwitch(room, label, x, z, facing, lamp, fixtureZ) {
   const lights = [1.8, 5.9].map(depth => ceilingDownlight(corridorRight + depth, fixtureZ(depth), 13, 4.6, .79));
   installWallLightSwitch(room.id+'-light-switch-0', room.label+' 전등', wallLightLabel(label),
-    x, 1.40, z, facing, lamp, lights);
+    x, 1.40, z, facing, lamp, lights, constructionRoot);
 }
 const washroomDepth=bareumOuterWall-corridorRight,washroomWidth=washroomBack-washroomFront;
 sanitaryFloor(corridorRight,bareumOuterWall,washroomFront,washroomBack);
@@ -4674,7 +4680,7 @@ for(let i=0;i<9;i++)box(.013,.018,.88,bareumOuterWall-.033,.235+i*.037,washroomC
 const waterMaterial=surface('#b3d5de',{transparent:true,opacity:.46,roughness:.19,metalness:.08,depthWrite:false});
 const washTapStreams=[];
 function washTap(x,y,z,index,room,streams,facing=Math.PI) {
-  const root=new THREE.Group();root.position.set(x,y,z);root.rotation.y=facing;scene.add(root);
+  const root=new THREE.Group();root.position.set(x,y,z);root.rotation.y=facing;constructionRoot.add(root);
   const p={parent:root};
   mesh(new THREE.CylinderGeometry(.031,.031,.015,20),sanitaryChrome,0,0,.008,{...p,rx:Math.PI/2});
   mesh(new THREE.CylinderGeometry(.022,.022,.10,20),sanitaryChrome,0,0,.060,{...p,rx:Math.PI/2});
@@ -4687,7 +4693,7 @@ function washTap(x,y,z,index,room,streams,facing=Math.PI) {
   const water=mesh(new THREE.CylinderGeometry(.005,.007,waterLength,10),waterMaterial,0,-.070-waterLength/2,.212,{parent:root,shadow:false});
   water.name=room.id+'-water-stream';water.visible=false;streams?.push(water);
   registerProp(room.id+'-tap-'+index,'수도꼭지',handle,knob,facing,'rotation','y',Math.PI/2,{
-    enabled:()=>player.x>room.minX&&player.x<room.maxX&&player.z>room.minZ&&player.z<room.maxZ&&Math.abs(player.jumpHeight)<.8,
+    enabled:()=>player.x>room.minX&&player.x<room.maxX&&player.z>room.minZ&&player.z<room.maxZ&&Math.abs(player.jumpHeight-(room.level??0))<.8,
     onProgress:p=>{water.visible=p>.04;}
   });
 }
@@ -4696,7 +4702,7 @@ function buildWashTroughs(room,start,end,streams,wallSide=1) {
   const sinkZ=wallZ-wallSide*(.01+depth/2);
   for(let i=0;i<2;i++){
     const w=span/2-.012,x=start+span*(i+.5)/2;
-    const basin=new THREE.Group();basin.position.set(x,0,sinkZ);basin.name=room.id+'-trough-basin';scene.add(basin);
+    const basin=new THREE.Group();basin.position.set(x,0,sinkZ);basin.name=room.id+'-trough-basin';constructionRoot.add(basin);
     basin.rotation.y=wallSide>0?0:Math.PI;
     const p={parent:basin,radius:.006};
     box(w,.025,.64,0,.68,0,sanitarySteel,p);
@@ -4846,9 +4852,10 @@ const rrSeatGeometry=new THREE.TorusGeometry(.192,.018,10,56).rotateX(-Math.PI/2
 const rrLidShape=new THREE.Shape();rrLidShape.absellipse(0,0,.175,.225,0,Math.PI*2,false,0);
 const rrLidGeometry=new THREE.ExtrudeGeometry(rrLidShape,{depth:.022,bevelEnabled:true,bevelSize:.007,bevelThickness:.005,bevelSegments:2,curveSegments:28}).translate(0,0,-.011);
 function restroomDoorBlocked(x,z,footHeight=0){
-  if(x<corridorRight||x>bareumOuterWall||footHeight>2.3)return false;
+  if(x<corridorRight||x>bareumOuterWall)return false;
   if(!(z>=restroomFrom&&z<=restroomTo)&&!(z>=corridorFront&&z<=libraryRestroomEnd))return false;
   for(const door of rrDoors){
+    if(footHeight<door.level-.2||footHeight>door.level+2.3)continue;
     if(Math.hypot(x-door.root.position.x,z-door.root.position.z)>door.width+.35)continue;
     const dx=x-door.root.position.x,dz=z-door.root.position.z,c=Math.cos(door.root.rotation.y),s=Math.sin(door.root.rotation.y);
     if(nearBox(c*dx-s*dz-door.width/2,s*dx+c*dz,door.width/2,.025))return true;
@@ -4862,7 +4869,7 @@ function rrRegisterDoor(id,label,root,panel,width,travel,outward){
     p.open=!p.open;
   };
   registerProp(id,label,root,panel,outward,'rotation','y',travel,{onUse:use,twoSided:true});
-  rrDoors.push({root,width,id});
+  rrDoors.push({root,width,id,level:constructionRoot.position.y});
 }
 function rrToilet(root,grabRailSide=0){
   mesh(rrToiletGeometry,sanitaryWhite,0,0,0,{parent:root}).scale.z=1.20;
@@ -4923,7 +4930,7 @@ function buildRestroomInterior(room){
   const F=(w,h,x,y,v,m,normal=1)=>plane(w,h,corridorRight+x,y,entrance+side*v,m,{ry:side*normal>0?0:Math.PI,shadow:false});
   const S=(w,d,x,v,top=Infinity)=>solid(corridorRight+x,entrance+side*v,w,d,0,top);
   const frameRoot=(x,v,into=1)=>{
-    const root=new THREE.Group();root.position.set(corridorRight+x,0,entrance+side*v);root.rotation.y=side*into>0?0:Math.PI;scene.add(root);return root;
+    const root=new THREE.Group();root.position.set(corridorRight+x,0,entrance+side*v);root.rotation.y=side*into>0?0:Math.PI;constructionRoot.add(root);return root;
   };
   const recessStart=room.recess.minX-corridorRight,recessEnd=room.recess.maxX-corridorRight;
   const floorFinish=(w,d)=>sanitaryFinish(sanitaryTileMap,w/.80,d/.80,'#f4f0e8',.38);
@@ -5180,14 +5187,13 @@ function libraryStairWalkable(x, z, footHeight) {
 const stairSharedPierZ = (libraryWashroom.maxZ + libraryStairMinZ) / 2;
 const stairSharedPierWidth = libraryStairMinZ - libraryWashroom.maxZ;
 const stairTrimGreen = surface('#8fac63', { roughness: .55 });
-for (const [z, span] of [[stairSharedPierZ, stairSharedPierWidth], [libraryStairBayTo - .06, .12]]) {
+function buildLibraryStairPier(z, span) {
   box(.18, height, span, corridorRight + .09, height / 2, z, hallWall, libraryStairWalls);
   box(.019, corridorSill, span - .003, corridorRight - .009, corridorSill / 2, z, hallGreen, libraryStairWalls);
   box(.024, .088, span - .005, corridorRight - .012, .044, z, hallSkirting, libraryStairWalls);
   solid(corridorRight + .09, z, .18, span);
 }
-for (const z of [libraryWashroom.maxZ + .023, libraryStairMinZ - .023])
-  box(.039, 1.13, .046, corridorRight - .01, .651, z, stairTrimGreen, { radius: .009 });
+buildLibraryStairPier(libraryStairBayTo - .06, .12);
 for (const z of [libraryStairMinZ - .06, libraryStairMaxZ + .06]) {
   box(libraryStairDepth - .18, libraryStairRoof - libraryStairBase, .12, libraryStairCenterX + .09,
     (libraryStairRoof + libraryStairBase) / 2, z, hallWall, libraryStairWalls);
@@ -5351,104 +5357,110 @@ box(1.36, .754, .032, (libraryStairFarX + bareumOuterWall) / 2, -halfStorey + 1.
 plane(1.31, .704, (libraryStairFarX + bareumOuterWall) / 2, -halfStorey + 1.65, libraryStairMaxZ - .035,
   landingBoard, { ry: Math.PI, shadow: false });
 
-// The narrow entrance opens to the left behind the service wall.
-const libraryWashWidth = libraryWashroom.maxZ - libraryWashroom.minZ;
-const libraryWashCenterZ = (libraryWashroom.minZ + libraryWashroom.maxZ) / 2;
-const washEntryWidth = libraryWashroom.maxZ - libraryWashEntryMinZ;
-const washEntryCenterZ = (libraryWashEntryMinZ + libraryWashroom.maxZ) / 2;
-const washRecessWidth = libraryWashEntryMinZ - libraryWashroom.minZ;
-const libraryWashWallStart = corridorRight + .18;
-const libraryWashWallLength = bareumOuterWall - libraryWashWallStart;
-const libraryWashCenterX = (libraryWashWallStart + bareumOuterWall) / 2;
-for (const [x0,x1,z0,name] of [
-  [corridorRight,libraryWashTurnX,libraryWashEntryMinZ,'library-washroom-entry'],
-  [libraryWashTurnX,bareumOuterWall,libraryWashroom.minZ,libraryWashroom.id]
-]) {
-  const z1=libraryWashroom.maxZ;
-  sanitaryFloor(x0,x1,z0,z1,name,true);
-  const ceiling = sanitaryFinish(rrCeilingMap,(x1-x0)/2.3,(z1-z0)/1.8,'#f5f1df',.45);
-  plane(x1-x0,z1-z0,(x0+x1)/2,height-.004,(z0+z1)/2,ceiling,{rx:Math.PI/2,shadow:false});
-}
-sanitaryWall(libraryWashWallLength,libraryWashCenterX,libraryWashroom.maxZ,Math.PI);
-sanitaryWall(libraryWashTurnX-libraryWashWallStart,(libraryWashWallStart+libraryWashTurnX)/2,libraryWashEntryMinZ,0);
-sanitaryWall(washRecessWidth,libraryWashTurnX,(libraryWashroom.minZ+libraryWashEntryMinZ)/2,Math.PI/2);
-sanitaryWall(bareumOuterWall-libraryWashTurnX,(bareumOuterWall+libraryWashTurnX)/2,libraryWashroom.minZ,0);
-for (const z of [libraryWashEntryMinZ,libraryWashroom.maxZ]) {
-  box(.042, height - .06, .042, corridorRight + .026, (height - .06) / 2, z, aluminum, libraryStairWalls);
-}
-box(.17, .075, washEntryWidth, corridorRight + .065, height - .039, washEntryCenterZ, aluminum, libraryStairWalls);
-box(.045, .005, washEntryWidth, corridorRight + .021, .004, washEntryCenterZ, aluminum, libraryStairWalls);
-box(.039, 1.13, .046, corridorRight - .010, .651, libraryWashEntryMinZ - .023, stairTrimGreen, { radius: .009 });
-placeCorridorSign(corridorRight, stairSharedPierZ, -1, classSignMaterial('양치실'), 'library-washroom-');
+function buildLibrarySideWashroom(room) {
+  buildLibraryStairPier(stairSharedPierZ, stairSharedPierWidth);
+  for (const z of [room.maxZ + .023, libraryStairMinZ - .023])
+    box(.039, 1.13, .046, corridorRight - .01, .651, z, stairTrimGreen, { radius: .009 });
+  // The narrow entrance opens to the left behind the service wall.
+  const libraryWashWidth = room.maxZ - room.minZ;
+  const libraryWashCenterZ = (room.minZ + room.maxZ) / 2;
+  const washEntryWidth = room.maxZ - libraryWashEntryMinZ;
+  const washEntryCenterZ = (libraryWashEntryMinZ + room.maxZ) / 2;
+  const washRecessWidth = libraryWashEntryMinZ - room.minZ;
+  const libraryWashWallStart = corridorRight + .18;
+  const libraryWashWallLength = bareumOuterWall - libraryWashWallStart;
+  const libraryWashCenterX = (libraryWashWallStart + bareumOuterWall) / 2;
+  for (const [x0,x1,z0,name] of [
+    [corridorRight,libraryWashTurnX,libraryWashEntryMinZ,room.id+'-entry'],
+    [libraryWashTurnX,bareumOuterWall,room.minZ,room.id]
+  ]) {
+    const z1=room.maxZ;
+    sanitaryFloor(x0,x1,z0,z1,name,true);
+    const ceiling = sanitaryFinish(rrCeilingMap,(x1-x0)/2.3,(z1-z0)/1.8,'#f5f1df',.45);
+    plane(x1-x0,z1-z0,(x0+x1)/2,height-.004,(z0+z1)/2,ceiling,{rx:Math.PI/2,shadow:false});
+  }
+  sanitaryWall(libraryWashWallLength,libraryWashCenterX,room.maxZ,Math.PI);
+  sanitaryWall(libraryWashTurnX-libraryWashWallStart,(libraryWashWallStart+libraryWashTurnX)/2,libraryWashEntryMinZ,0);
+  sanitaryWall(washRecessWidth,libraryWashTurnX,(room.minZ+libraryWashEntryMinZ)/2,Math.PI/2);
+  sanitaryWall(bareumOuterWall-libraryWashTurnX,(bareumOuterWall+libraryWashTurnX)/2,room.minZ,0);
+  for (const z of [libraryWashEntryMinZ,room.maxZ]) {
+    box(.042, height - .06, .042, corridorRight + .026, (height - .06) / 2, z, aluminum, libraryStairWalls);
+  }
+  box(.17, .075, washEntryWidth, corridorRight + .065, height - .039, washEntryCenterZ, aluminum, libraryStairWalls);
+  box(.045, .005, washEntryWidth, corridorRight + .021, .004, washEntryCenterZ, aluminum, libraryStairWalls);
+  box(.039, 1.13, .046, corridorRight - .010, .651, libraryWashEntryMinZ - .023, stairTrimGreen, { radius: .009 });
+  placeCorridorSign(corridorRight, stairSharedPierZ, -1, classSignMaterial('양치실'), room.id+'-');
 
-const serviceSpan = libraryWashEntryMinZ - libraryServiceWallStart;
-const libraryWashServiceZ = (libraryWashEntryMinZ + libraryServiceWallStart) / 2;
-box(.18, height, serviceSpan, corridorRight + .09, height / 2, libraryWashServiceZ, hallWall, libraryStairWalls);
-solid(corridorRight + .09, libraryWashServiceZ, .18, serviceSpan);
-box(.02, corridorSill, serviceSpan - .002, corridorRight - .008, corridorSill / 2, libraryWashServiceZ, hallGreen, libraryStairWalls);
-box(.024, .089, serviceSpan - .005, corridorRight - .010, .045, libraryWashServiceZ, hallSkirting, libraryStairWalls);
-const servicePanelWidth = .56;
-box(.028, 1.90, servicePanelWidth, corridorRight - .019, 1.25, libraryWashServiceZ, frame, { radius: .004 });
-box(.020, 1.845, servicePanelWidth - .05, corridorRight - .025, 1.25, libraryWashServiceZ, hallwayDoorPaint, { radius: .004 });
-box(.035, .082, .014, corridorRight - .039, 1.18, libraryWashServiceZ + servicePanelWidth / 2 - .069, steel, { radius: .005 });
-plane(.174, .126, corridorRight - .037, 1.60, libraryWashServiceZ, simpleSign(250, 180, (g, w, h) => {
-  g.fillStyle = '#dca943'; g.fillRect(0, 0, w, h);
-  g.fillStyle = '#36352d'; g.font = 'bold 44px "Malgun Gothic", sans-serif'; g.textAlign = 'center';
-  g.fillText('전기주의', w / 2, 76);
-  g.fillStyle = '#9e3c32'; g.fillRect(0, 104, w, 76);
-  g.fillStyle = '#f1d5a5'; g.font = '25px "Malgun Gothic", sans-serif'; g.fillText('관계자 외 조작 금지', w / 2, 150);
-}), { ry: -Math.PI / 2, shadow: false });
+  const serviceSpan = libraryWashEntryMinZ - libraryServiceWallStart;
+  const libraryWashServiceZ = (libraryWashEntryMinZ + libraryServiceWallStart) / 2;
+  box(.18, height, serviceSpan, corridorRight + .09, height / 2, libraryWashServiceZ, hallWall, libraryStairWalls);
+  solid(corridorRight + .09, libraryWashServiceZ, .18, serviceSpan);
+  box(.02, corridorSill, serviceSpan - .002, corridorRight - .008, corridorSill / 2, libraryWashServiceZ, hallGreen, libraryStairWalls);
+  box(.024, .089, serviceSpan - .005, corridorRight - .010, .045, libraryWashServiceZ, hallSkirting, libraryStairWalls);
+  const servicePanelWidth = .56;
+  box(.028, 1.90, servicePanelWidth, corridorRight - .019, 1.25, libraryWashServiceZ, frame, { radius: .004 });
+  box(.020, 1.845, servicePanelWidth - .05, corridorRight - .025, 1.25, libraryWashServiceZ, hallwayDoorPaint, { radius: .004 });
+  box(.035, .082, .014, corridorRight - .039, 1.18, libraryWashServiceZ + servicePanelWidth / 2 - .069, steel, { radius: .005 });
+  plane(.174, .126, corridorRight - .037, 1.60, libraryWashServiceZ, simpleSign(250, 180, (g, w, h) => {
+    g.fillStyle = '#dca943'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#36352d'; g.font = 'bold 44px "Malgun Gothic", sans-serif'; g.textAlign = 'center';
+    g.fillText('전기주의', w / 2, 76);
+    g.fillStyle = '#9e3c32'; g.fillRect(0, 104, w, 76);
+    g.fillStyle = '#f1d5a5'; g.font = '25px "Malgun Gothic", sans-serif'; g.fillText('관계자 외 조작 금지', w / 2, 150);
+  }), { ry: -Math.PI / 2, shadow: false });
 
-const libraryWashAccent = sanitaryFinish(sanitaryWallMap, 1.03, height / .30, '#e4cd67', .32);
-plane(.63, height - .013, corridorRight + 2.18, (height - .013) / 2, libraryWashEntryMinZ + .008,
-  libraryWashAccent, { shadow: false });
-plane(.63, .235, corridorRight + 2.18, 1.065, libraryWashEntryMinZ + .010,
-  sanitaryFinish(sanitaryBandMap, .63 / 1.2, 1), { shadow: false });
-const libraryWashDiffuser = diffuser.clone();
-for (const x of [corridorRight + 1.3, corridorRight + 3.84, corridorRight + 6.46]) {
-  const z = x < libraryWashTurnX ? washEntryCenterZ : libraryWashCenterZ;
-  mesh(new THREE.CylinderGeometry(.092, .092, .018, 20), frame, x, height - .020, z);
-  mesh(new THREE.CircleGeometry(.076, 20), libraryWashDiffuser, x, height - .030, z, { rx: Math.PI / 2, shadow: false });
+  const libraryWashAccent = sanitaryFinish(sanitaryWallMap, 1.03, height / .30, '#e4cd67', .32);
+  plane(.63, height - .013, corridorRight + 2.18, (height - .013) / 2, libraryWashEntryMinZ + .008,
+    libraryWashAccent, { shadow: false });
+  plane(.63, .235, corridorRight + 2.18, 1.065, libraryWashEntryMinZ + .010,
+    sanitaryFinish(sanitaryBandMap, .63 / 1.2, 1), { shadow: false });
+  const libraryWashDiffuser = diffuser.clone();
+  for (const x of [corridorRight + 1.3, corridorRight + 3.84, corridorRight + 6.46]) {
+    const z = x < libraryWashTurnX ? washEntryCenterZ : libraryWashCenterZ;
+    mesh(new THREE.CylinderGeometry(.092, .092, .018, 20), frame, x, height - .020, z);
+    mesh(new THREE.CircleGeometry(.076, 20), libraryWashDiffuser, x, height - .030, z, { rx: Math.PI / 2, shadow: false });
+  }
+  installSanitaryLightSwitch(room, '양치실', corridorRight+.46, libraryWashEntryMinZ+.004, 0,
+    libraryWashDiffuser, depth => corridorRight+depth < libraryWashTurnX ? washEntryCenterZ : libraryWashCenterZ);
+
+  const libraryWashWindowJamb = .12;
+  const libraryWashWindowWidth = libraryWashWidth - 2 * libraryWashWindowJamb;
+  const libraryWashWindowLow = 1.02, libraryWashWindowHigh = 2.78;
+  for (const [lo, hi] of [[0, libraryWashWindowLow], [libraryWashWindowHigh, height]])
+    box(.13, hi - lo, libraryWashWidth, bareumOuterWall + .065, (hi + lo) / 2, libraryWashCenterZ, sanitaryWhite, libraryStairWalls);
+  for (const side of [-1, 1]) {
+    box(.13, libraryWashWindowHigh - libraryWashWindowLow, libraryWashWindowJamb, bareumOuterWall + .065,
+      (libraryWashWindowHigh + libraryWashWindowLow) / 2, libraryWashCenterZ + side * (libraryWashWidth - libraryWashWindowJamb) / 2, sanitaryWhite, libraryStairWalls);
+    box(.10, libraryWashWindowHigh - libraryWashWindowLow, .047, bareumOuterWall - .007,
+      (libraryWashWindowHigh + libraryWashWindowLow) / 2, libraryWashCenterZ + side * libraryWashWindowWidth / 2, frame, libraryStairWalls);
+  }
+  for (const y of [libraryWashWindowLow, 2.07, libraryWashWindowHigh])
+    box(.113, .052, libraryWashWindowWidth, bareumOuterWall - .008, y, libraryWashCenterZ, frame, libraryStairWalls);
+  box(.10, libraryWashWindowHigh - libraryWashWindowLow, .040, bareumOuterWall - .011,
+    (libraryWashWindowHigh + libraryWashWindowLow) / 2, libraryWashCenterZ, frame, libraryStairWalls);
+  plane(libraryWashWindowWidth, libraryWashWindowHigh - libraryWashWindowLow, bareumOuterWall + .021,
+    (libraryWashWindowHigh + libraryWashWindowLow) / 2, libraryWashCenterZ, outdoorGlass, { ry: -Math.PI / 2, shadow: false });
+  solid(bareumOuterWall + .064, libraryWashCenterZ, .13, libraryWashWidth);
+  box(.035, .38, .64, bareumOuterWall - .020, .405, libraryWashCenterZ, frame, libraryStairWalls);
+  for (let i = 0; i < 7; i++)
+    box(.005, .015, .54, bareumOuterWall - .040, .278 + .040 * i, libraryWashCenterZ, steel, libraryStairWalls);
+
+  const libraryWashSinkFrom = libraryWashTurnX + .10, libraryWashSinkTo = bareumOuterWall - .17;
+  buildWashTroughs(room, libraryWashSinkFrom, libraryWashSinkTo, undefined, -1);
+  const libraryWashMirrorLength = libraryWashSinkTo - libraryWashSinkFrom;
+  const libraryWashMirrorX = (libraryWashSinkFrom + libraryWashSinkTo) / 2;
+  box(libraryWashMirrorLength + .060, .97, .023, libraryWashMirrorX, 1.73, room.minZ + .019, frame, libraryStairWalls);
+  plane(libraryWashMirrorLength, .91, libraryWashMirrorX, 1.73, room.minZ + .033, mirrorGlass,
+    { shadow: false }).name = room.id+'-mirror';
+  const libraryWashGrate = surface('#ffffff', { map: drainMap, roughness: .5 });
+  for (const x of [libraryWashSinkFrom + .73, libraryWashSinkTo - .64])
+    plane(.17, .17, x, .004, room.minZ + .91, libraryWashGrate, { rx: -Math.PI / 2, shadow: false });
+  const libraryWashBinX = bareumOuterWall - .40, libraryWashBinZ = room.maxZ - .32;
+  mesh(new THREE.CylinderGeometry(.17, .15, .51, 18), sanitaryRed, libraryWashBinX, .255, libraryWashBinZ);
+  mesh(new THREE.CylinderGeometry(.168, .168, .024, 18), dark, libraryWashBinX, .511, libraryWashBinZ);
+  solid(libraryWashBinX, libraryWashBinZ, .33, .33, 0, .53);
 }
-installSanitaryLightSwitch(libraryWashroom, '양치실', corridorRight+.46, libraryWashEntryMinZ+.004, 0,
-  libraryWashDiffuser, depth => corridorRight+depth < libraryWashTurnX ? washEntryCenterZ : libraryWashCenterZ);
-
-const libraryWashWindowJamb = .12;
-const libraryWashWindowWidth = libraryWashWidth - 2 * libraryWashWindowJamb;
-const libraryWashWindowLow = 1.02, libraryWashWindowHigh = 2.78;
-for (const [lo, hi] of [[0, libraryWashWindowLow], [libraryWashWindowHigh, height]])
-  box(.13, hi - lo, libraryWashWidth, bareumOuterWall + .065, (hi + lo) / 2, libraryWashCenterZ, sanitaryWhite, libraryStairWalls);
-for (const side of [-1, 1]) {
-  box(.13, libraryWashWindowHigh - libraryWashWindowLow, libraryWashWindowJamb, bareumOuterWall + .065,
-    (libraryWashWindowHigh + libraryWashWindowLow) / 2, libraryWashCenterZ + side * (libraryWashWidth - libraryWashWindowJamb) / 2, sanitaryWhite, libraryStairWalls);
-  box(.10, libraryWashWindowHigh - libraryWashWindowLow, .047, bareumOuterWall - .007,
-    (libraryWashWindowHigh + libraryWashWindowLow) / 2, libraryWashCenterZ + side * libraryWashWindowWidth / 2, frame, libraryStairWalls);
-}
-for (const y of [libraryWashWindowLow, 2.07, libraryWashWindowHigh])
-  box(.113, .052, libraryWashWindowWidth, bareumOuterWall - .008, y, libraryWashCenterZ, frame, libraryStairWalls);
-box(.10, libraryWashWindowHigh - libraryWashWindowLow, .040, bareumOuterWall - .011,
-  (libraryWashWindowHigh + libraryWashWindowLow) / 2, libraryWashCenterZ, frame, libraryStairWalls);
-plane(libraryWashWindowWidth, libraryWashWindowHigh - libraryWashWindowLow, bareumOuterWall + .021,
-  (libraryWashWindowHigh + libraryWashWindowLow) / 2, libraryWashCenterZ, outdoorGlass, { ry: -Math.PI / 2, shadow: false });
-solid(bareumOuterWall + .064, libraryWashCenterZ, .13, libraryWashWidth);
-box(.035, .38, .64, bareumOuterWall - .020, .405, libraryWashCenterZ, frame, libraryStairWalls);
-for (let i = 0; i < 7; i++)
-  box(.005, .015, .54, bareumOuterWall - .040, .278 + .040 * i, libraryWashCenterZ, steel, libraryStairWalls);
-
-const libraryWashSinkFrom = libraryWashTurnX + .10, libraryWashSinkTo = bareumOuterWall - .17;
-buildWashTroughs(libraryWashroom, libraryWashSinkFrom, libraryWashSinkTo, undefined, -1);
-const libraryWashMirrorLength = libraryWashSinkTo - libraryWashSinkFrom;
-const libraryWashMirrorX = (libraryWashSinkFrom + libraryWashSinkTo) / 2;
-box(libraryWashMirrorLength + .060, .97, .023, libraryWashMirrorX, 1.73, libraryWashroom.minZ + .019, frame, libraryStairWalls);
-plane(libraryWashMirrorLength, .91, libraryWashMirrorX, 1.73, libraryWashroom.minZ + .033, mirrorGlass,
-  { shadow: false }).name = 'library-washroom-mirror';
-const libraryWashGrate = surface('#ffffff', { map: drainMap, roughness: .5 });
-for (const x of [libraryWashSinkFrom + .73, libraryWashSinkTo - .64])
-  plane(.17, .17, x, .004, libraryWashroom.minZ + .91, libraryWashGrate, { rx: -Math.PI / 2, shadow: false });
-const libraryWashBinX = bareumOuterWall - .40, libraryWashBinZ = libraryWashroom.maxZ - .32;
-mesh(new THREE.CylinderGeometry(.17, .15, .51, 18), sanitaryRed, libraryWashBinX, .255, libraryWashBinZ);
-mesh(new THREE.CylinderGeometry(.168, .168, .024, 18), dark, libraryWashBinX, .511, libraryWashBinZ);
-solid(libraryWashBinX, libraryWashBinZ, .33, .33, 0, .53);
+buildLibrarySideWashroom(libraryWashroom);
 
 // The open stair beside the grade-three counseling room serves the floors above and below.
 const endStairWidth = stairWidth;
@@ -5552,7 +5564,18 @@ buildEndCorridorWindow(0,scene);
 
 const stackedCorridorBack = oppositePlanZ(mapLayout.stackedCorridorEnd);
 // The upper and lower corridors share stairwell openings with the main floor.
+function sanitaryWalkable(x, z, spaces, interiors) {
+  return spaces.some(room => x >= room.minX - playerRadius && x <= room.maxX - playerRadius &&
+    z >= room.minZ + playerRadius && z <= room.maxZ - playerRadius &&
+    (room.entryMinZ === undefined || z >= room.entryMinZ + playerRadius || x >= libraryWashTurnX + playerRadius)) ||
+    interiors.some(room => (Math.abs(x-restroomDoorX)<.59-playerRadius && Math.abs(z-room.entranceZ)<.40) ||
+      (x>=room.recess.minX+playerRadius && x<=room.recess.maxX-playerRadius &&
+       z>=room.recess.minZ+playerRadius && z<=room.recess.maxZ-playerRadius));
+}
+
 function stackedHallWalkable(x, z, footHeight) {
+  if (nearestLandingY(footHeight) === -storey && x >= corridorRight - playerRadius &&
+      z < libraryStairMinZ && sanitaryWalkable(x, z, gymSanitarySpaces, gymRestrooms)) return true;
   if (nearestLandingY(footHeight) === storey && x >= left + playerRadius && x <= right + playerRadius &&
       upperClassrooms.some(room => z >= room.frontZ + playerRadius && z <= room.backZ - playerRadius)) return true;
   if (nearestLandingY(footHeight) === firstFloorY && entranceWalkable(x,z)) return true;
@@ -5899,9 +5922,6 @@ hallFrontages(secondFloorHall, -storey, firstClassWing, stackedCorridorBack, tru
   ['1-라온', 'class', 7.42], ['1-마음', 'class', 7.42], ['1-바름', 'class', 6.78],
   ['영어실 · 수석교사실', 'room', 6.78], ['2-가람', 'class', 6.78],
   ['2-나눔', 'class', 6.78], ['2-다움', 'class', 6.78], ['2-라온', 'class', 6.78], ['2-마음', 'class', 6.78]
-]);
-hallFrontages(secondFloorHall, -storey, corridorFront, libraryStairMinZ, false, [
-  ['여자 화장실', 'utility', 1], ['남자 화장실', 'utility', 1], ['양치실', 'utility', 1]
 ]);
 hallFrontages(secondFloorHall, -storey, libraryStairMaxZ, liftBayFrom, false, [
   ['위클래스', 'room', 3], ['1학년 연구실', 'room', 3], ['창의학습공간', 'alcove', 8],
@@ -8341,83 +8361,84 @@ const fireCabinets=[
   { z:libraryToiletZ-2.36, w:.29, low:.29, high:.89 },
   { z:libraryToiletZ+2.47, w:.46, low:.31, high:1.56 }
 ];
-for(const [i,[a,b]]of [[libraryFront,libraryToiletZ-toiletHalf-.25],[libraryToiletPanelStart,libraryServiceWallStart]].entries()){
-  box(.12,height,b-a,corridorRight+.06,height/2,(a+b)/2,libraryCream,{batch:true});solid(corridorRight+.06,(a+b)/2,.12,b-a);
-  box(.028,.087,b-a,corridorRight-.015,.0435,(a+b)/2,slatWood,{batch:true});
-  const n=i===1?libraryToiletPanelCount-1:Math.max(1,Math.round((b-a)/.64));
-  const cabinet=fireCabinets[i],cabinetLeft=cabinet.z-cabinet.w/2,cabinetRight=cabinet.z+cabinet.w/2;
-  for(let col=0;col<n;col++)for(let row=0;row<3;row++){
-    const z0=a+col*(b-a)/n+.002,z1=a+(col+1)*(b-a)/n-.002;
-    const y0=.09+row*.604,y1=y0+.60;
-    const panel=panelColors[(col+row*2)%6];
-    const section=(lo,hi,bottom,top)=>{
-      if(hi-lo>.001&&top-bottom>.001)box(.023,top-bottom,hi-lo,corridorRight-.014,(bottom+top)/2,(lo+hi)/2,panel,{batch:true});
-    };
-    if(z0>=cabinetRight||z1<=cabinetLeft||y0>=cabinet.high||y1<=cabinet.low){
-      section(z0,z1,y0,y1);
-    }else{
-      section(z0,Math.min(z1,cabinetLeft),y0,y1);
-      section(Math.max(z0,cabinetRight),z1,y0,y1);
-      const lo=Math.max(z0,cabinetLeft),hi=Math.min(z1,cabinetRight);
-      section(lo,hi,y0,cabinet.low);section(lo,hi,cabinet.high,y1);
-    }
-  }
-  const cabinetRoot=frameAlongSide(cabinet.z,corridorRight-.026,-1);
-  const h=cabinet.high-cabinet.low,y=(cabinet.high+cabinet.low)/2;
-  const cabinetParts={parent:cabinetRoot,radius:.007};
-  box(cabinet.w,h,.031,0,y,0,slatWood,cabinetParts);
-  if(i===0){
-    box(.105,.43,.009,0,y,.018,dark,cabinetParts);
-    box(.052,.21,.009,0,y-.065,.024,sanitaryRed,cabinetParts);
-    box(.031,.040,.007,0,y+.064,.028,sanitaryChrome,cabinetParts);
-    box(.113,.442,.008,0,y,.030,libraryDoorGlass,cabinetParts);
-  }else{
-    box(cabinet.w-.045,h-.045,.011,0,y,.019,sanitaryWhite,cabinetParts);
-    box(cabinet.w-.079,.007,.011,0,cabinet.high-.28,.025,steel,cabinetParts);
-    box(.023,.092,.017,-.152,y+.053,.026,steel,cabinetParts);
-    for(const [j,color]of ['#b33e3c','#a7332f','#766351'].entries()){
-      mesh(new THREE.SphereGeometry(.029,10,8),surface(color,{roughness:.42,emissive:color,emissiveIntensity:j===0?.38:0}),
-        -.115+j*.111,cabinet.high-.131,.030,{parent:cabinetRoot,sz:.31});
-    }
-  }
-}
-for(const side of [-1,1]){
-  const z=libraryToiletZ+side*(toiletHalf+.125);
-  box(.16,height,.25,corridorRight+.08,height/2,z,slatWood,{batch:true});solid(corridorRight+.08,z,.16,.25);
-  const icon=libraryPrint(192,384,(g,w,h)=>{
-    g.clearRect(0,0,w,h);g.fillStyle=side<0?'#bd7495':'#5986ad';g.beginPath();g.arc(w/2,48,25,0,Math.PI*2);g.fill();
-    if(side<0){g.beginPath();g.moveTo(70,90);g.lineTo(122,90);g.lineTo(150,240);g.lineTo(42,240);g.closePath();g.fill();}
-    else g.fillRect(61,90,70,150);
-    g.fillRect(64,227,24,100);g.fillRect(104,227,24,100);
-  });icon.transparent=true;icon.alphaTest=.1;
-  plane(.239,.68,corridorRight-.006,1.62,z,icon,{ry:-Math.PI/2,shadow:false});
-}
-box(.16,.49,restroomLobbyWidth,corridorRight+.08,height-.245,libraryToiletZ,slatWood,{batch:true});
-buildRestroomLobby(libraryRestroomLobby);
-
-const libraryWayfindingZ=libraryToiletZ+1.39,libraryWayfindingX=corridorRight-1.08;
-box(.88,.255,.040,libraryWayfindingX,2.675,libraryWayfindingZ,hallSkirting,{radius:.012});
-for(const side of [-1,1]){
-  box(.015,.254,.015,libraryWayfindingX+side*.34,height-.145,libraryWayfindingZ,steel,{batch:true});
-  const board=libraryPrint(560,164,(g,w,h)=>{
-    g.fillStyle='#333735';g.fillRect(0,0,w,h);g.fillStyle='#eef0e6';
-    g.font='bold 58px "Malgun Gothic",sans-serif';g.textAlign='center';
-    g.fillText(side>0?'화장실  →':'←  화장실',w/2,104);
-  });
-  plane(.851,.229,libraryWayfindingX,2.675,libraryWayfindingZ+side*.021,board,
-    {ry:side>0?0:Math.PI,shadow:false});
-}
 const libraryExitSign=libraryPrint(384,134,(g,w,h)=>{
   g.fillStyle='#4d886f';g.fillRect(0,0,w,h);g.fillStyle='#ecf3e7';
   g.textAlign='center';g.font='bold 55px "Malgun Gothic",sans-serif';g.fillText('비상구  ↑',w/2,87);
 });
-const exitZ=libraryRestroomEnd-.36;
-box(.41,.157,.061,corridorRight-.58,height-.135,exitZ,frame,{radius:.008});
-for(const side of [-1,1]){
-  plane(.39,.139,corridorRight-.58,height-.135,exitZ+side*.032,libraryExitSign,{ry:side>0?0:Math.PI,shadow:false});
+function buildLibrarySideRestroomFront(lobby) {
+  for(const [i,[a,b]]of [[libraryFront,libraryToiletZ-toiletHalf-.25],[libraryToiletPanelStart,libraryServiceWallStart]].entries()){
+    box(.12,height,b-a,corridorRight+.06,height/2,(a+b)/2,libraryCream,{batch:true});solid(corridorRight+.06,(a+b)/2,.12,b-a);
+    box(.028,.087,b-a,corridorRight-.015,.0435,(a+b)/2,slatWood,{batch:true});
+    const n=i===1?libraryToiletPanelCount-1:Math.max(1,Math.round((b-a)/.64));
+    const cabinet=fireCabinets[i],cabinetLeft=cabinet.z-cabinet.w/2,cabinetRight=cabinet.z+cabinet.w/2;
+    for(let col=0;col<n;col++)for(let row=0;row<3;row++){
+      const z0=a+col*(b-a)/n+.002,z1=a+(col+1)*(b-a)/n-.002;
+      const y0=.09+row*.604,y1=y0+.60;
+      const panel=panelColors[(col+row*2)%6];
+      const section=(lo,hi,bottom,top)=>{
+        if(hi-lo>.001&&top-bottom>.001)box(.023,top-bottom,hi-lo,corridorRight-.014,(bottom+top)/2,(lo+hi)/2,panel,{batch:true});
+      };
+      if(z0>=cabinetRight||z1<=cabinetLeft||y0>=cabinet.high||y1<=cabinet.low){
+        section(z0,z1,y0,y1);
+      }else{
+        section(z0,Math.min(z1,cabinetLeft),y0,y1);
+        section(Math.max(z0,cabinetRight),z1,y0,y1);
+        const lo=Math.max(z0,cabinetLeft),hi=Math.min(z1,cabinetRight);
+        section(lo,hi,y0,cabinet.low);section(lo,hi,cabinet.high,y1);
+      }
+    }
+    const cabinetRoot=frameAlongSide(cabinet.z,corridorRight-.026,-1);
+    const h=cabinet.high-cabinet.low,y=(cabinet.high+cabinet.low)/2;
+    const cabinetParts={parent:cabinetRoot,radius:.007};
+    box(cabinet.w,h,.031,0,y,0,slatWood,cabinetParts);
+    if(i===0){
+      box(.105,.43,.009,0,y,.018,dark,cabinetParts);
+      box(.052,.21,.009,0,y-.065,.024,sanitaryRed,cabinetParts);
+      box(.031,.040,.007,0,y+.064,.028,sanitaryChrome,cabinetParts);
+      box(.113,.442,.008,0,y,.030,libraryDoorGlass,cabinetParts);
+    }else{
+      box(cabinet.w-.045,h-.045,.011,0,y,.019,sanitaryWhite,cabinetParts);
+      box(cabinet.w-.079,.007,.011,0,cabinet.high-.28,.025,steel,cabinetParts);
+      box(.023,.092,.017,-.152,y+.053,.026,steel,cabinetParts);
+      for(const [j,color]of ['#b33e3c','#a7332f','#766351'].entries()){
+        mesh(new THREE.SphereGeometry(.029,10,8),surface(color,{roughness:.42,emissive:color,emissiveIntensity:j===0?.38:0}),
+          -.115+j*.111,cabinet.high-.131,.030,{parent:cabinetRoot,sz:.31});
+      }
+    }
+  }
+  for(const side of [-1,1]){
+    const z=libraryToiletZ+side*(toiletHalf+.125);
+    box(.16,height,.25,corridorRight+.08,height/2,z,slatWood,{batch:true});solid(corridorRight+.08,z,.16,.25);
+    const icon=libraryPrint(192,384,(g,w,h)=>{
+      g.clearRect(0,0,w,h);g.fillStyle=side<0?'#bd7495':'#5986ad';g.beginPath();g.arc(w/2,48,25,0,Math.PI*2);g.fill();
+      if(side<0){g.beginPath();g.moveTo(70,90);g.lineTo(122,90);g.lineTo(150,240);g.lineTo(42,240);g.closePath();g.fill();}
+      else g.fillRect(61,90,70,150);
+      g.fillRect(64,227,24,100);g.fillRect(104,227,24,100);
+    });icon.transparent=true;icon.alphaTest=.1;
+    plane(.239,.68,corridorRight-.006,1.62,z,icon,{ry:-Math.PI/2,shadow:false});
+  }
+  box(.16,.49,restroomLobbyWidth,corridorRight+.08,height-.245,libraryToiletZ,slatWood,{batch:true});
+  buildRestroomLobby(lobby);
+
+  const libraryWayfindingZ=libraryToiletZ+1.39,libraryWayfindingX=corridorRight-1.08;
+  box(.88,.255,.040,libraryWayfindingX,2.675,libraryWayfindingZ,hallSkirting,{radius:.012});
+  for(const side of [-1,1]){
+    box(.015,.254,.015,libraryWayfindingX+side*.34,height-.145,libraryWayfindingZ,steel,{batch:true});
+    const board=libraryPrint(560,164,(g,w,h)=>{
+      g.fillStyle='#333735';g.fillRect(0,0,w,h);g.fillStyle='#eef0e6';
+      g.font='bold 58px "Malgun Gothic",sans-serif';g.textAlign='center';
+      g.fillText(side>0?'화장실  →':'←  화장실',w/2,104);
+    });
+    plane(.851,.229,libraryWayfindingX,2.675,libraryWayfindingZ+side*.021,board,
+      {ry:side>0?0:Math.PI,shadow:false});
+  }
+  const exitZ=libraryRestroomEnd-.36;
+  box(.41,.157,.061,corridorRight-.58,height-.135,exitZ,frame,{radius:.008});
+  for(const side of [-1,1]){
+    plane(.39,.139,corridorRight-.58,height-.135,exitZ+side*.032,libraryExitSign,{ry:side>0?0:Math.PI,shadow:false});
+  }
 }
-
-
+buildLibrarySideRestroomFront(libraryRestroomLobby);
 
 finishScienceDoorEntrance(tactile,libraryExitSign);
 // All outward-facing windows on this wing look into one static, world-space scene.
@@ -9368,18 +9389,33 @@ const {root:schoolGroundsRoot,elevation:schoolExterior}=buildSchoolGrounds();
 
 
 
+// Build on a translated root so prop hitboxes and batched transforms use the same floor.
+const gymSanitaryRoot = new THREE.Group();
+gymSanitaryRoot.position.y = -storey;
+constructionRoot = gymSanitaryRoot;
+buildLibrarySideRestroomFront(gymRestroomLobby);
+buildLibrarySideWashroom(gymWashroom);
+for (const room of gymRestrooms) buildRestroomInterior(room);
+constructionRoot = scene;
+const gymSanitaryParts = new Set(gymSanitaryRoot.children);
+for (const part of gymSanitaryParts) {
+  part.position.y += gymSanitaryRoot.position.y;
+  scene.add(part);
+}
+
 batchLockerParts();
 const renderRooms = [
   ...upperClassrooms.map(r => createRenderRoom(r.label,left,right,right,r.frontZ,r.backZ,false,r.level)),
   createLibraryRenderRoom(),
-  ...sanitarySpaces.map(room => {
+  ...[...sanitarySpaces, ...gymSanitarySpaces].map(room => {
+    const level = room.level ?? 0;
     const result=createRenderRoom(room.label,room.minX,room.maxX,room.side?NaN:corridorRight,
-      Math.min(room.minZ,room.recess?.minZ??room.minZ),Math.max(room.maxZ,room.recess?.maxZ??room.maxZ),true);
+      Math.min(room.minZ,room.recess?.minZ??room.minZ),Math.max(room.maxZ,room.recess?.maxZ??room.maxZ),true,level);
     result.id=room.id;
-    if(room===libraryWashroom)result.portal.min.z=libraryWashEntryMinZ-.16;
+    if(room.entryMinZ!==undefined)result.portal.min.z=room.entryMinZ-.16;
     result.lobbyId=room.lobbyId;
-    if(room.side)result.portal=new THREE.Box3(new Vector3(restroomDoorX-.66,-.05,room.entranceZ-.31),
-      new Vector3(restroomDoorX+.66,height+.05,room.entranceZ+.31));
+    if(room.side)result.portal=new THREE.Box3(new Vector3(restroomDoorX-.66,level-.05,room.entranceZ-.31),
+      new Vector3(restroomDoorX+.66,level+height+.05,room.entranceZ+.31));
     return result;
   }),
   ...[plan.classroomSpan, ...plan.classroomSide].map(([from, to, label = '4-다움']) =>
@@ -9407,9 +9443,9 @@ function createRenderRoom(label, minX, maxX, wallX, minZ, maxZ, open, level = 0)
   return { minX, maxX, wallX, minZ, maxZ, level, open, group, portal, variants: [], lights: [], lightsNearby: false, distant: false };
 }
 
-function renderRoomFor(bounds) {
+function renderRoomFor(bounds, level) {
   if (bounds.isEmpty()) return undefined;
-  return renderRooms.find(room => bounds.min.x >= room.minX + .07 && bounds.max.x <= room.maxX - .07 &&
+  return renderRooms.find(room => (level === undefined || room.level === level) && bounds.min.x >= room.minX + .07 && bounds.max.x <= room.maxX - .07 &&
     bounds.min.y >= room.level-.12 && bounds.max.y <= room.level+height+.18 &&
     bounds.min.z >= room.minZ + .02 && bounds.max.z <= room.maxZ - .02);
 }
@@ -9554,10 +9590,13 @@ for (const object of [...scene.children]) {
     object.traverse(part => part.layers.enable(entranceLobbyLayer));
     continue;
   }
-  const room = renderRoomFor(roomBounds);
+  const gymPart = gymSanitaryParts.has(object);
+  const room = renderRoomFor(roomBounds, gymPart ? -storey : undefined);
   if (room) {
     room.group.add(object);
     if (room.facade) collectFurniture(object,room,roomBounds);
+  } else if (gymPart) {
+    secondFloorHall.add(object);
   } else if (belowUpperClassrooms(roomBounds) && object !== classroomWings[0].walls && object !== classroomWings[0].windows) {
     lowerClassroomTrim.add(object);
   } else if (!classroomWings.some(wing=>wing.walls===object || wing.windows===object)) {
@@ -9585,13 +9624,13 @@ function renderCellFor(x, z, entranceLobby) {
   return renderCells.get(key);
 }
 
-for (const { geometry, material, shadow, batchRoot, matrices } of batches.values()) {
+for (const { geometry, material, shadow, batchRoot, level, matrices } of batches.values()) {
   if (!geometry.boundingBox) geometry.computeBoundingBox();
   const partitions = new Map();
   for (const matrix of matrices) {
     if (!batchRoot) roomBounds.copy(geometry.boundingBox).applyMatrix4(matrix);
     const entranceLobby = !batchRoot && belongsToEntranceLobby(roomBounds);
-    const room = !batchRoot && !entranceLobby ? renderRoomFor(roomBounds) : null;
+    const room = !batchRoot && !entranceLobby ? renderRoomFor(roomBounds, level < 0 ? level : undefined) : null;
     const x = matrix.elements[12], z = matrix.elements[14];
     const region = room ?? renderCellFor(x, z, entranceLobby);
     if (!partitions.has(region)) partitions.set(region, []);
@@ -9604,7 +9643,7 @@ for (const { geometry, material, shadow, batchRoot, matrices } of batches.values
     instances.castShadow = shadow;
     instances.receiveShadow = true;
     instances.computeBoundingSphere();
-    (batchRoot ?? region.group ?? scene).add(instances);
+    (batchRoot ?? region.group ?? (level < 0 ? secondFloorHall : scene)).add(instances);
     if (!batchRoot && !region.group && !region.entranceLobby) {
       roomBounds.setFromObject(instances);
       if (belowUpperClassrooms(roomBounds)) lowerClassroomTrim.add(instances);
@@ -10142,6 +10181,7 @@ function indexColliders(obstacles) {
 }
 const nearbyColliders = indexColliders(colliders);
 const nearbyUpperColliders = indexColliders(upperColliders);
+const nearbyGymColliders = indexColliders(gymSanitaryColliders);
 const clamp = THREE.MathUtils.clamp;
 
 function easeTo(current, target, blend) {
@@ -10177,6 +10217,8 @@ function free(x, z, footHeight = 0) {
   if (Math.abs(footHeight) > halfStorey) {
     if (nearestLandingY(footHeight) === firstFloorY && (entranceBlocked(x,z) || groundsBlocked(x,z,footHeight))) return false;
     if (elevatorBlocked(x, z, footHeight)) return false;
+    if (nearestLandingY(footHeight) === -storey && (restroomDoorBlocked(x,z,footHeight) ||
+        blockedByClassroom(x,z,footHeight,nearbyGymColliders(x,z),-storey))) return false;
     const allowed = stackedHallWalkable(x, z, footHeight) || stairWalkable(x, z, footHeight) || elevatorWalkable(x, z, footHeight);
     if (nearestLandingY(footHeight) === storey && blockedByClassroom(x,z,footHeight,nearbyUpperColliders(x,z),storey)) return false;
     return allowed && walkSurfaceAt(x, z, footHeight) <= footHeight + .19;
@@ -10200,12 +10242,7 @@ function free(x, z, footHeight = 0) {
     (researchRooms.some(room => betweenEndWalls(room.frontZ, room.backZ)) ||
       betweenEndWalls(supportFront, supportBack) || betweenEndWalls(computerFront, computerBack) ||
       counselingRooms.some(room => betweenEndWalls(room.frontZ, room.backZ)));
-  const inSanitary = sanitarySpaces.some(room => x >= room.minX - playerRadius && x <= room.maxX - playerRadius &&
-    z >= room.minZ + playerRadius && z <= room.maxZ - playerRadius &&
-    (room !== libraryWashroom || z >= libraryWashEntryMinZ + playerRadius || x >= libraryWashTurnX + playerRadius)) ||
-    restroomInteriors.some(room => (Math.abs(x-restroomDoorX)<.59-playerRadius && Math.abs(z-room.entranceZ)<.40) ||
-      (x>=room.recess.minX+playerRadius && x<=room.recess.maxX-playerRadius &&
-       z>=room.recess.minZ+playerRadius && z<=room.recess.maxZ-playerRadius));
+  const inSanitary = sanitaryWalkable(x, z, sanitarySpaces, restroomInteriors);
   const inStairs = stairWalkable(x, z, footHeight);
   const inElevator = elevatorWalkable(x, z, footHeight);
   const inLibrary = x >= libraryBounds.minX + playerRadius && x <= libraryBounds.maxX - playerRadius &&
@@ -10234,9 +10271,10 @@ function blockedByClassroom(x,z,footHeight,obstacles,level) {
 
 function floorUnder(x, z, footHeight) {
   let floor = walkSurfaceAt(x, z, footHeight);
-  const upper = nearestLandingY(footHeight) === storey;
-  if (!upper && Math.abs(footHeight) > halfStorey) return floor;
-  for (const object of (upper ? nearbyUpperColliders : nearbyColliders)(x,z)) {
+  const level = nearestLandingY(footHeight);
+  if (level === firstFloorY) return floor;
+  const nearby = level === storey ? nearbyUpperColliders : level === -storey ? nearbyGymColliders : nearbyColliders;
+  for (const object of nearby(x,z)) {
     if (object.top <= footHeight && object.top > floor &&
         nearBox(x - object.x, z - object.z, object.hw, object.hd, furnitureRadius)) floor = object.top;
   }
