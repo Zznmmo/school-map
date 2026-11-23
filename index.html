@@ -6044,17 +6044,27 @@ function buildSportsRoom() {
   }
 
   const wallX=-corridorDepth/2;
-  front(.10,1.46,1.33,wallX-.009,.73,2.48,creamWall);
-  const dispenser=joint(entry,wallX+.51,0,2.48);
+  const cabinetZ=1.33, cabinetSpan=1.05, cabinetDepth=.50;
+  const fountainSpan=1.20, fountainZ=cabinetZ+(cabinetSpan+fountainSpan)/2;
+  const wallStart=gymHallFront-corridorFront, wallEnd=fountainZ+fountainSpan/2+.10;
+  const wallSpan=wallEnd-wallStart, wallCenter=(wallStart+wallEnd)/2;
+  // Continue the existing corner wall behind the whole fountain, up to the ceiling.
+  const returnDepth=.48;
+  front(returnDepth,height,wallSpan,wallX-returnDepth/2,height/2,wallCenter,creamWall);
+  obstacle(wallX-returnDepth/2,wallCenter,returnDepth,wallSpan);
+  const fountainFace=wallX+.515; // The cabinet back is .515 behind its local origin.
+  const dispenser=joint(entry,fountainFace,0,fountainZ);
   dispenser.rotation.y=Math.PI/2;
   buildDrinkingFountain(dispenser,'himchan-fountain',Math.PI/2,()=>Math.abs(player.jumpHeight+storey)<.85);
-  obstacle(wallX+.26,2.48,.55,1.20);
-  front(.32,2.60,1.05,wallX+.13,1.30,1.33,maple);
-  for(const v of [1.08,1.58]){
-    front(.020,2.53,.50,wallX+.30,1.29,v,doorMaple);
-    front(.030,.13,.017,wallX+.325,1.10,v+(v<1.33?.17:-.17),steel);
+  obstacle(wallX+.27,fountainZ,.54,fountainSpan);
+  front(.52,height,.10,wallX+.26,height/2,wallEnd-.05,maple);
+  obstacle(wallX+.26,wallEnd-.05,.52,.10);
+  front(cabinetDepth,2.60,cabinetSpan,wallX+cabinetDepth/2,1.30,cabinetZ,maple);
+  for(const v of [cabinetZ-.25,cabinetZ+.25]){
+    front(.020,2.53,.50,wallX+cabinetDepth+.01,1.29,v,doorMaple);
+    front(.030,.13,.017,wallX+cabinetDepth+.033,1.10,v+(v<cabinetZ?.17:-.17),steel);
   }
-  obstacle(wallX+.15,1.33,.35,1.05);
+  obstacle(wallX+.26,cabinetZ,.52,cabinetSpan);
   const hoopGeo=new THREE.TorusGeometry(.397,.018,8,52);
   const hoopPaint=['#66ab59','#f3c549','#ec7167','#51a7c3','#9b76aa'].map(c=>surface(c,{roughness:.48}));
   for(let i=0;i<9;i++){
