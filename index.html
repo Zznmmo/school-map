@@ -492,6 +492,19 @@ function getBox(w, h, d, radius) {
   return geometryCache.get(key);
 }
 
+// Slabs with a separate tile or timber finish only need their sides and underside.
+const slabShell = getBox(1,1,1,0).clone();
+const slabIndices = Array.from(slabShell.index.array);
+const slabTop = slabShell.groups[2]; // BoxGeometry +Y face
+slabIndices.splice(slabTop.start,slabTop.count);
+slabShell.setIndex(slabIndices);
+slabShell.clearGroups();
+
+function floorSupport(w,h,d,x,y,z,material) {
+  if (aimWallFinishes.has(material)) registerAimBarrier(w,h,d,x,y,z,{});
+  place(slabShell,material,x,y,z,{batch:true,sx:w,sy:h,sz:d});
+}
+
 function mesh(geometry, material, x, y, z, options = {}) {
   const { rx = 0, ry = 0, rz = 0, parent = constructionRoot, shadow = true } = options;
   const object = new THREE.Mesh(geometry, material);
@@ -765,13 +778,13 @@ function classroomCeiling(w, thickness, span, x, z) {
 classroomCeiling(width + corridorDepth + .22, ceilingSlabThickness, length, classroomCenter + corridorDepth / 2, 0);
 const classroomFrontWallDepth = .16;
 function buildClassroomFrontWall(z) {
+  if (z === scienceBack) return; // The science corridor owns this shared partition.
   const shared = z === back || additionalClassrooms.some(room => room.backZ === z);
   if (shared) {
     box(width + .15, height, .018, classroomCenter, height / 2, z - .009,
       [creamWall, creamWall, creamWall, creamWall, creamWall, pinkWall]);
   } else {
-    const finish = z === scienceBack ? [creamWall, creamWall, creamWall, creamWall, creamWall, hallWall] : creamWall;
-    box(width + .15, height, classroomFrontWallDepth, classroomCenter, height / 2, z - classroomFrontWallDepth / 2, finish);
+    box(width + .15, height, classroomFrontWallDepth, classroomCenter, height / 2, z - classroomFrontWallDepth / 2, creamWall);
   }
 }
 function buildClassroomRearWall(z) {
@@ -2076,7 +2089,8 @@ const hvacDisplayOn = surface('#ffffff', { roughness: .48, map: texture(320, 126
   g.fillStyle = '#2b4336'; g.font = '24px "Malgun Gothic", sans-serif'; g.fillText('운전', 20, 33);
   g.font = 'bold 64px monospace'; g.fillText('24 °C', 96, 98);
 }) });
-const hvacDisplay = plane(.124, .051, hvacSwitchX, frontSwitchHeight + .032, front + .034, hvacDisplayOff, { shadow: false });
+const hvacDisplayOffset = .036;
+const hvacDisplay = plane(.124, .051, hvacSwitchX, frontSwitchHeight + .032, front + hvacDisplayOffset, hvacDisplayOff, { shadow: false });
 const hvacPower = mesh(new THREE.CylinderGeometry(.0062, .0062, .004, 14), frame,
   hvacSwitchX - .058, frontSwitchHeight - .012, front + .032, { rx: Math.PI / 2 });
 for (const dy of [-.027, -.043]) {
@@ -2547,7 +2561,7 @@ function buildAdditionalClassroomControls(mapX, offsetZ, prefix, cassette, wallZ
   const control = box(.163, .152, .027, controlX, frontSwitchHeight, wallZ + .016, switchWhite, { radius: .006 });
   control.name = prefix + 'front-hvac-switch';
   box(.137, .063, .005, controlX, frontSwitchHeight + .032, wallZ + .031, dark, { radius: .003 });
-  const display = plane(.124, .051, controlX, frontSwitchHeight + .032, wallZ + .034, hvacDisplayOff, { shadow: false });
+  const display = plane(.124, .051, controlX, frontSwitchHeight + .032, wallZ + hvacDisplayOffset, hvacDisplayOff, { shadow: false });
   const power = mesh(new THREE.CylinderGeometry(.0062, .0062, .004, 14), frame,
     controlX - .058, frontSwitchHeight - .012, wallZ + .032, { rx: Math.PI / 2 });
   registerProp(prefix + 'hvac-switch-0', '냉난방기', power, control, 0, 'position', 'z', -.002, {
@@ -2874,6 +2888,9 @@ const wingClassroomWallStart = left - .075;
 const wingClassroomWallZ = scienceBack - classroomFrontWallDepth;
 const wingClassroomWallSpan = right - wingClassroomWallStart;
 const wingClassroomWallX = (right + wingClassroomWallStart) / 2;
+const scienceClassroomWall = box(width + .15, height, classroomFrontWallDepth, classroomCenter, height / 2,
+  (scienceBack + wingClassroomWallZ) / 2, [creamWall, creamWall, creamWall, creamWall, creamWall, hallWall],
+  { parent: scienceCorridor });
 hallFacade('', 'wall', (wingWindowStart + wingClassroomWallStart) / 2,
   scienceBack, wingClassroomWallStart - wingWindowStart, Math.PI, 0, scienceCorridorInterior);
 box(wingClassroomWallSpan - .004, corridorSill, .016, wingClassroomWallX, corridorSill / 2, wingClassroomWallZ - .004, hallGreen, wingInteriorParts);
@@ -4037,12 +4054,13 @@ tactileStrip(.44, .385, liftWallX - .59, .001, lift.position.z + .78, Math.PI / 
 
 function graniteLanding(x0, x1, z0, z1, y, material = landingMaterial) {
   const w = x1 - x0, d = z1 - z0, x = (x0 + x1) / 2, z = (z0 + z1) / 2;
-  box(w, .142, d, x, y - .071, z, hallWall, stairParts);
+  const top = y + .001, bottom = y - .142;
+  floorSupport(w, top - bottom, d, x, (top + bottom) / 2, z, hallWall);
   const texture = material.map.clone();
   texture.repeat.set(w / .52, d / .52);
   const finish = material.clone();
   finish.map = texture;
-  plane(w, d, x, y + .001, z, finish, { rx: -Math.PI / 2, shadow: false }).name = 'stair-landing-floor';
+  plane(w, d, x, top, z, finish, { rx: -Math.PI / 2, shadow: false }).name = 'stair-landing-floor';
   for (let offset = .52; offset < w - .02; offset += .52) box(.0018, .002, d, x0 + offset, y + .002, z, stairNosing, stairParts);
   for (let offset = .52; offset < d - .02; offset += .52) box(w, .002, .0018, x, y + .002, z0 + offset, stairNosing, stairParts);
 }
@@ -4637,12 +4655,13 @@ function sanitaryFinish(map, repeatsX, repeatsY, tint='#ffffff', roughness=.43) 
 }
 function sanitaryFloor(x0,x1,z0,z1,kind='washroom',tiled=kind==='washroom') {
   const w=x1-x0,d=z1-z0,x=(x0+x1)/2,z=(z0+z1)/2;
-  box(w,.08,d,x,-.043,z,hallWall,{batch:true});
+  const top=kind===gymRestroomLobby.id ? -.001 : .001, bottom=-.083;
+  floorSupport(w,top-bottom,d,x,(top+bottom)/2,z,hallWall);
   if(kind===gymRestroomLobby.id){
-    secondHallTiles(constructionRoot,[[x0,x1,z0,z1]],[], -.001,kind+'-floor');
+    secondHallTiles(constructionRoot,[[x0,x1,z0,z1]],[],top,kind+'-floor');
   }else{
     const finish=tiled?sanitaryFinish(sanitaryTileMap,w/.80,d/.80):sanitaryFinish(tileMap,w/corridorDepth,d/length);
-    plane(w,d,x,.001,z,finish,{rx:-Math.PI/2,shadow:false}).name=kind+'-floor';
+    plane(w,d,x,top,z,finish,{rx:-Math.PI/2,shadow:false}).name=kind+'-floor';
   }
   // Thin ceilings fit below the floor above; avoid the earlier stair lobby overlap.
   box(w,.06,d,x,height+.030,z,acoustic,{batch:true});
@@ -5648,6 +5667,7 @@ const sportsEntranceZ = corridorFront - sportsFountainLength;
 const gymFixtureBay = { start: .07, end: 2.81, depth: 1.60 };
 const gymLeftWallInset = .80;
 const stackedCorridorBack = oppositePlanZ(mapLayout.stackedCorridorEnd);
+const stackedResearchRooms = [];
 // The upper and lower corridors share stairwell openings with the main floor.
 function sanitaryWalkable(x, z, spaces, interiors) {
   return spaces.some(room => x >= room.minX - playerRadius && x <= room.maxX - playerRadius &&
@@ -5673,6 +5693,8 @@ function stackedHallWalkable(x, z, footHeight) {
     x >= corridorRight - playerRadius && x <= bareumOuterWall - playerRadius ? -1 : 0;
   if (side && stackedClassrooms.some(room => room.level === level && room.facing === side &&
       z >= room.frontZ + playerRadius && z <= room.backZ - playerRadius)) return true;
+  if (side === -1 && stackedResearchRooms.some(room => room.level === level &&
+      z >= room.frontZ + playerRadius && z <= room.backZ - playerRadius)) return true;
   if (nearestLandingY(footHeight) === firstFloorY && entranceWalkable(x,z)) return true;
   if (nearestLandingY(footHeight) === -storey && x<gymHallEndX+gymEndLeafWidth+playerRadius) {
     const u=gymHallCenterZ-z, v=x-gymHallEndX;
@@ -5685,7 +5707,7 @@ function stackedHallWalkable(x, z, footHeight) {
   }
   if (nearestLandingY(footHeight) === -storey && x >= gymHallEndX + playerRadius && x <= right + playerRadius &&
       z >= gymHallFront + playerRadius &&
-      z <= gymFieldWallAt(x,playerRadius) - playerRadius) return true;
+      z <= firstClassWing - playerRadius) return true;
   if (nearestLandingY(footHeight) === -storey && x >= right - gymLeftWallInset + playerRadius &&
       x <= right + playerRadius && z >= sportsEntranceZ + gymFixtureBay.start + playerRadius &&
       z <= firstClassWing - playerRadius) return true;
@@ -5706,7 +5728,8 @@ function hallFrontages(root, y, start, end, classroomSide, rooms, clipEnd = end)
   for (const [label, kind, weight, id] of rooms) {
     const span = Math.min((end - start) * weight / total, clipEnd - from);
     if (span <= 0) break;
-    if (id) stackedClassrooms.push({id, label, frontZ:from, backZ:from+span, level:y, facing: classroomSide ? 1 : -1});
+    if (kind === 'research') stackedResearchRooms.push({id, label, frontZ:from, backZ:from+span, level:y});
+    else if (id) stackedClassrooms.push({id, label, frontZ:from, backZ:from+span, level:y, facing: classroomSide ? 1 : -1});
     else hallFacade(label, kind, classroomSide ? right : corridorRight, from + span / 2,
       span, classroomSide ? Math.PI / 2 : -Math.PI / 2, y, root);
     from += span;
@@ -5774,23 +5797,18 @@ const gymHallFront = firstClassWing - gymHallWidth;
 const gymSideDoor = { offset:2.20, width:2.38, recess:.66 };
 const gymHallCenterZ = (gymHallFront + firstClassWing) / 2;
 const auditoriumSideLength = 14402 * gymPlanScale;
-const gymEndBayLength=2, gymEndInset=1;
+const gymEndBayLength=2;
 const gymHallLength = auditoriumSideLength + 2564 * gymPlanScale + 6 + gymEndBayLength;
 const gymHallEndX = right - gymHallLength;
-const gymEndWallZ=firstClassWing-gymEndInset;
 const clockWingDepth = 3.85;
 const gymRecessStartX = gymHallEndX + clockWingDepth;
-// The open terrace ends at the fixed 3F science doorway. The wall below turns there too.
+// The fixed 3F science doorway marks the start of the last window bay below.
 const gymRecessEndX = scienceEnd;
 const gymGlazedSpan = classroomOuterFaceX - gymRecessEndX;
 const gymLinkBays = Math.round(gymGlazedSpan / 4.4);
 const gymRecessBay = gymRecessEndX-gymRecessStartX;
 const gymLinkSill=.30, gymLinkHead=height-.10;
 const gymRecessWindow = { width: gymRecessBay * .74, sill: gymLinkSill, head: gymLinkHead };
-const gymFloorBays = [[gymHallEndX,gymRecessEndX,gymEndWallZ],[gymRecessEndX,right,firstClassWing]];
-function gymFieldWallAt(x,clearance=0){
-  return x<gymRecessEndX+clearance ? gymEndWallZ : firstClassWing;
-}
 const gymEndDoorCenter=.38, gymEndLeafWidth=.84;
 const gymEndLeaves=[];
 // The drawings give relative room frontages. Anchor the central hall to the lift.
@@ -6055,7 +6073,7 @@ const gymLeftFacadeSpan=gymLeftWallSpan-.15;
 hallFacade('', 'wall', right - gymLeftWallInset, gymLeftWallStart + gymLeftFacadeSpan/2,
   gymLeftFacadeSpan, Math.PI/2, -storey, secondFloorHall);
 hallFrontages(secondFloorHall, -storey, sportsEntranceZ, corridorFront, false, [['', 'wall', 1]]);
-const gymHallWindows = new THREE.Box3(new Vector3(gymHallEndX,-storey+.32,gymEndWallZ-.12),
+const gymHallWindows = new THREE.Box3(new Vector3(gymHallEndX,-storey+.32,firstClassWing-.12),
   new Vector3(classroomOuterFaceX,-storey+height-.10,firstClassWing+.12));
 const gymTerraceSideWall = new THREE.Box3(new Vector3(gymHallEndX,-storey,gymHallFront-gymSideDoor.recess-.08),
   new Vector3(classroomOuterFaceX,-storey+height+.06,gymHallFront+.15));
@@ -6620,11 +6638,9 @@ function secondHallTiles(parent,rects,borders,y,name){
     [corridorRight-trim,corridorRight,gymRestroomLobby.maxZ,corridorBack]];
   const y=-storey-.001;
   secondHallTiles(secondFloorHall,footprint,edging,y,'second-hall-floor');
-  secondHallTiles(gymPassage,gymFloorBays.map(([a,b,z])=>[a,b,gymHallFront,z]),
+  secondHallTiles(gymPassage,[[gymHallEndX,right,gymHallFront,firstClassWing]],
     [[gymHallEndX,insetWall,gymHallFront,gymHallFront+trim],
-     [gymHallEndX,gymRecessEndX,gymEndWallZ-trim,gymEndWallZ],
-     [gymRecessEndX,gymRecessEndX+trim,gymEndWallZ-trim,firstClassWing],
-     [gymRecessEndX,right,firstClassWing-trim,firstClassWing]],y,'second-gym-hall-floor');
+     [gymHallEndX,right,firstClassWing-trim,firstClassWing]],y,'second-gym-hall-floor');
 }
 for (const [above, id, label] of [
   ['bareum5', 'garam1', '1-가람'], ['sarang5', 'nanum1', '1-나눔'], ['garam', 'daum1', '1-다움'],
@@ -6662,24 +6678,32 @@ hallFrontages(secondFloorHall, -storey, secondActivityStart, bareum2Bay.frontZ, 
 hallFrontages(secondFloorHall, -storey, bareum2Bay.frontZ, bareum2Bay.backZ, false, [['2-바름', 'class', 1, 'bareum2']]);
 hallFrontages(secondFloorHall, -storey, bareum2Bay.backZ, studioStart, false, [['방송실', 'room', 1]]);
 hallFrontages(secondFloorHall, -storey, studioStart, stackedEndStairZ, false, [['스튜디오', 'room', 1]]);
-// Widths are relative frontage lengths on the fourth-floor drawing. The end
-// practice and preparation rooms sit behind the main hallway's end facade.
-hallFrontages(fourthFloorHall, storey, corridorFront, stackedCorridorBack, true, [
-  ['5-가람', 'class', 89], ['음악준비실', 'room', 26], ['실과실', 'room', 88], ['실과준비실', 'room', 27],
-  ['5-나눔', 'class', 63, 'nanum5'], ['5-다움', 'class', 64], ['5-라온', 'class', 64],
-  ['6-가람', 'class', 62], ['6-나눔', 'class', 60], ['6-다움', 'class', 62],
-  ['6-라온', 'class', 62], ['6-마음', 'class', 62], ['6-바름', 'class', 62]
-]);
+// Keep the wider 5-Garam frontage at its original 89 units on the 791-unit drawing.
+const garam5End = corridorFront + (stackedCorridorBack - corridorFront) * 89 / 791;
+hallFrontages(fourthFloorHall, storey, corridorFront, garam5End, true, [['5-가람', 'class', 1]]);
+hallFrontages(fourthFloorHall, storey, garam5End, yardClassroomBays.get('nanum').frontZ, true, [
+  ['음악준비실', 'room', 26], ['실과실', 'room', 88], ['실과준비실', 'room', 27]
+], yardClassroomBays.get('nanum').frontZ - classroomFrontWallDepth);
+for (const [below, id, label] of [
+  ['nanum','nanum5','5-나눔'], ['daum','daum5','5-다움'], ['raon','raon5','5-라온'],
+  ['maeum','garam6','6-가람'], ['garam3','nanum6','6-나눔'], ['nanum3','daum6','6-다움'],
+  ['daum3','raon6','6-라온'], ['raon3','maeum6','6-마음'], ['maeum3','bareum6','6-바름']
+]) {
+  const { frontZ, backZ } = yardClassroomBays.get(below);
+  stackedClassrooms.push({ id, label, frontZ, backZ, level: storey, facing: 1 });
+}
 hallFrontages(fourthFloorHall, storey, corridorFront, libraryStairMinZ, false, [
   ['여자 화장실', 'utility', 38], ['남자 화장실', 'utility', 38], ['양치실', 'utility', 26]
 ]);
-hallFrontages(fourthFloorHall, storey, libraryStairMaxZ, liftBayFrom, false, [
-  ['5학년 상담실', 'room', 25], ['5학년 연구실', 'room', 38], ['창의학습공간', 'alcove', 78],
-  ['학생자치실', 'room', 25], ['5-마음', 'class', 64]
-]);
+hallFrontages(fourthFloorHall, storey, libraryStairMaxZ, front, false, [
+  ['5학년 상담실', 'room', 25], ['5학년 연구실', 'research', 38, 'research5'], ['창의학습공간', 'alcove', 78],
+  ['학생자치실', 'room', 25]
+], front - classroomFrontWallDepth);
+hallFrontages(fourthFloorHall, storey, front, back, false, [['5-마음', 'class', 1, 'maeum5']]);
+hallFrontages(fourthFloorHall, storey, back + classroomFrontWallDepth, liftBayFrom, false, [['', 'wall', 1]]);
 hallFrontages(fourthFloorHall, storey, stairEntryTo, stackedEndStairZ, false, [
   ['여자 화장실', 'utility', 31], ['남자 화장실', 'utility', 32], ['양치실', 'utility', 25],
-  ['6학년 연구실', 'room', 40], ['창의학습공간', 'alcove', 89], ['보관실', 'room', 102],
+  ['6학년 연구실', 'research', 40, 'research6'], ['창의학습공간', 'alcove', 89], ['보관실', 'room', 102],
   ['6학년 상담실', 'room', 25]
 ]);
 
@@ -7027,8 +7051,8 @@ function buildGymHall() {
     windowGuard(leftWall,mid,w);
     solid(right-a,firstClassWing,.34,.30,0,Infinity,y);
   }
-  // The last bay steps in on the field side. Its exterior brick skin shares this aperture.
-  const bay=gymRecessBay, inset=joint(passage,gymRecessEndX,y,gymEndWallZ);
+  // The last window continues on the same wall line as the other field-side windows.
+  const bay=gymRecessBay, inset=joint(passage,gymRecessEndX,y,firstClassWing);
   inset.rotation.y=Math.PI;
   const {width:opening,sill,head}=gymRecessWindow, jamb=(bay-opening)/2;
   wall(inset,0,jamb); wall(inset,bay-jamb,bay);
@@ -7042,23 +7066,18 @@ function buildGymHall() {
     part(inset,opening,.05,.13,bay/2,up,-.09,aluminum);
   windowGuard(inset,bay/2,opening);
   wall(inset,bay,gymRecessEndX-gymHallEndX);
-  const corner=joint(passage,gymRecessEndX,y,firstClassWing);
-  corner.rotation.y=Math.PI/2;
-  wall(corner,0,gymEndInset);
   part(rightWall,.25,height,.22,vestibule,height/2,.10,creamWall);
-  const beamWidth=gymFieldWallAt(gymHallEndX+vestibule)-gymHallFront;
-  part(rightWall,.24,.22,beamWidth,vestibule,height-.11,beamWidth/2,hallWall);
+  part(rightWall,.24,.22,gymHallWidth,vestibule,height-.11,gymHallWidth/2,hallWall);
   for(const u of [vestibule,.95]){
-    const marker=joint(rightWall,u,height-.26,(gymFieldWallAt(gymHallEndX+u)-gymHallFront)/2);marker.rotation.y=Math.PI/2;
+    const marker=joint(rightWall,u,height-.26,gymHallWidth/2);marker.rotation.y=Math.PI/2;
     part(marker,.29,.18,.06,0,0,0,aluminum);
     face(marker,.26,.15,0,0,.033,exit);
   }
   // Folded blue equipment mats in the corner clear of the main route.
-  const matX=gymHallEndX+.49, matZ=gymEndWallZ-.56;
+  const matX=gymHallEndX+.49, matZ=firstClassWing-.56;
   for(let i=0;i<5;i++)box(.13,1.64,.87,matX+i*.14,y+.82,matZ,matBlue,parts);
   solid(matX+.28,matZ,.70,.87,0,1.64,y);
-  for(const [a,b,wallZ] of gymFloorBays)
-    box(b-a,.045,wallZ-gymHallFront,(a+b)/2,y+height+.0225,(gymHallFront+wallZ)/2,acoustic,parts);
+  box(gymHallLength,.045,gymHallWidth,(gymHallEndX+right)/2,y+height+.0225,gymHallCenterZ,acoustic,parts);
   for (let x = right - 1.4; x > gymHallEndX + .6; x -= hallLightSpacing) {
     box(1.08, .035, .207, x, y + height - .020, gymHallCenterZ, frame, parts);
     box(1.011, .015, .172, x, y + height - .041, gymHallCenterZ, hallwayDiffusers[1], parts);
@@ -7076,7 +7095,7 @@ function buildStackedHall(name, y, endRoom, endKind = 'room') {
   const hallEnd = corridorBack;
   if (y === firstFloorY) hallFacade('', 'wall', hallwayX, hallEnd, corridorDepth, Math.PI, y, root);
   else buildEndCorridorWindow(y,root);
-  const yardRoomsEnd = y === -storey ? planZ(plan.classroomSide.at(-1)[1]) : stackedCorridorBack;
+  const yardRoomsEnd = y === firstFloorY ? stackedCorridorBack : planZ(plan.classroomSide.at(-1)[1]);
   if (hallEnd > yardRoomsEnd)
     hallFacade('', 'wall', right, (yardRoomsEnd+hallEnd)/2, hallEnd-yardRoomsEnd, Math.PI/2, y, root);
   if (hallEnd > stackedCorridorBack) {
@@ -7269,14 +7288,15 @@ function registerOfficeStorage(root, prefix) {
 
 const fourthResearchFixtures = new Map();
 let fourthResearchFacade;
-function buildResearchRoom({ id, label, frontZ, backZ }) {
+function buildResearchRoom({ id, label, frontZ, backZ, level = 0 }) {
   const researchSpan = backZ - frontZ;
   const researchCenter = (frontZ + backZ) / 2;
   const researchHalf = researchSpan / 2;
   const researchDepth = oppositeDepth;
   const research = frameAlongSide(researchCenter, corridorRight, -1);
-  const thirdGrade = id === 'research3';
-  research.name = thirdGrade ? 'third-grade-research-room' : 'fourth-grade-research-room';
+  const grade = Number.parseInt(label, 10);
+  const lengthwiseLayout = grade === 3 || grade === 6;
+  research.name = ['third','fourth','fifth','sixth'][grade - 3] + '-grade-research-room';
   const researchParts = { parent: research };
   const researchBox = (w, h, d, u, y, depth, material, radius = .003) =>
     box(w, h, d, u, y, -depth, material, { ...researchParts, radius, batch: true });
@@ -7290,13 +7310,17 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
     surface('#f1eee8', { map: floorMap, roughness: .64 }), { ...researchParts, rx: -Math.PI / 2, shadow: false })
     .name = id + '-tile-floor';
   researchBox(researchSpan, ceilingSlabThickness, researchDepth, 0, height + ceilingSlabThickness / 2, researchDepth / 2 + .08, acoustic);
-  if (thirdGrade) {
+  if (level) {
+    // The adjacent 4F bays only have corridor fronts. These rooms own both end walls.
+    for (const side of [-1, 1])
+      researchBox(.080, height, researchDepth, side * (researchHalf - .043), height / 2, researchDepth / 2 + .08, hallWall, 0);
+  } else if (grade === 3) {
     // The washroom and the window wall above the creative-space bench enclose the two ends.
     researchBox(.012, height, researchDepth, -researchHalf + .126, height / 2, researchDepth / 2, hallWall, 0);
   } else {
     researchBox(.126, height, researchDepth + .18, -researchHalf + .022, height / 2, researchDepth / 2 + .04, hallWall);
   }
-  for (const u of [-researchHalf + (thirdGrade ? .143 : .094), researchHalf - .019]) {
+  for (const u of [-researchHalf + (grade === 3 ? .143 : .094), researchHalf - (level ? .095 : .019)]) {
     researchBox(.025, .080, researchDepth, u, .040, researchDepth / 2, hallSkirting);
   }
 
@@ -7306,19 +7330,21 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
   const researchDoorEnd = researchDoorU + openingWidth / 2;
   buildClassroomDoor({ id: 'door', z: researchDoorZ, direction: 1 },
     { wallX: corridorRight, facing: -1, prefix: id + '-', sticker: false });
-  placeCorridorSign(corridorRight, researchDoorZ + openingWidth / 2 + .365, -1, classSignMaterial(thirdGrade ? '③ 연구실' : '④ 연구실'), id + '-');
+  placeCorridorSign(corridorRight, researchDoorZ + openingWidth / 2 + .365, -1, classSignMaterial('③④⑤⑥'[grade - 3] + ' 연구실'), id + '-');
 
   const researchCorridorWindowStart = -1.58, researchCorridorWindowEnd = researchDoorStart - .025;
   const researchWindowSpan = researchCorridorWindowEnd - researchCorridorWindowStart;
   const researchWindowU = (researchCorridorWindowStart + researchCorridorWindowEnd) / 2;
-  if (!thirdGrade) {
+  if (grade !== 3) {
     const opening = (start, end, bottom, door) => ({door, bounds: new THREE.Box3(
-      new Vector3(corridorRight-.02, bottom-.012, researchCenter+start-.012),
-      new Vector3(corridorRight+.02, height+.012, researchCenter+end+.012))});
-    fourthResearchFacade = {wallX:corridorRight, facing:-1, openings:[
+      new Vector3(corridorRight-.02, level+bottom-.012, researchCenter+start-.012),
+      new Vector3(corridorRight+.02, level+height+.012, researchCenter+end+.012))});
+    const facade = {wallX:corridorRight, facing:-1, level, center:researchCenter, openings:[
       opening(researchCorridorWindowStart,researchCorridorWindowEnd,corridorSill),
       opening(researchDoorStart,researchDoorEnd,0,doors.get(id+'-door'))
     ]};
+    if (grade === 4) fourthResearchFacade = facade;
+    else classroomFacades.push(facade);
   }
   function researchHallWall(start, end) {
     const span = end - start, u = (start + end) / 2;
@@ -7385,7 +7411,7 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
     root.position.set(u, 0, -depth);
     root.rotation.y = rotation;
     research.add(root);
-    if (thirdGrade) scene.attach(root); // Group furnishings by visibility independently of the shell.
+    if (grade !== 4) scene.attach(root); // Group furnishings by visibility independently of the shell.
     else fourthResearchFixtures.set(root,{bounds:new THREE.Box3(),dirty:true});
     return { parent: root, radius: .010 };
   }
@@ -7405,7 +7431,7 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
   for (const x of [.188, .238, .281]) box(.020, .005, .013, x, .982, .276, copierLed, { ...copier, radius: .002 });
   researchSolid(2.27, 1.43, .69, .72);
 
-  if (!thirdGrade) {
+  if (!lengthwiseLayout) {
     const clock = researchFixture('research-wall-clock', -2.12, .045 + .153 / 2, Math.PI);
     mesh(new THREE.CylinderGeometry(.151, .151, .032, 48), dark, 0, 2.36, .017,
       { ...clock, rx: Math.PI / 2 });
@@ -7425,7 +7451,7 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
     researchSolid(standU, standDepth, .23, .23);
   }
 
-  const shredderDepth = thirdGrade ? 2.13 : 2.22;
+  const shredderDepth = lengthwiseLayout ? 2.13 : 2.22;
   const shredder = researchFixture('research-shredder', 2.33, shredderDepth, -Math.PI / 2);
   box(.397, .660, .440, 0, .336, 0, appliance, { ...shredder, radius: .025 });
   box(.365, .067, .353, 0, .669, -.027, blueGlass, { ...shredder, radius: .019 });
@@ -7443,8 +7469,8 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
   }
   researchSolid(-.58, .62, 1.57, .40);
 
-  const dividerU = researchHalf - (thirdGrade ? .12 : .54);
-  const dividerDepth = thirdGrade ? 2.88 : 4.00, dividerSpacing = .991;
+  const dividerU = researchHalf - (level ? .083 : 0) - (lengthwiseLayout ? .12 : .54);
+  const dividerDepth = lengthwiseLayout ? 2.88 : 4.00, dividerSpacing = .991;
   function addDivider(u, depth, yaw, feet) {
     const p = researchFixture('research-rolling-divider', u, depth, yaw);
     box(.930, .818, .044, 0, .505, 0, frame, p);
@@ -7457,22 +7483,35 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
     }
     for (const y of [.924, 1.527]) box(.95, .057, .045, 0, y, 0, boardWhite, p);
   }
-  const straightCount = thirdGrade ? 2 : 3;
-  for (let i = 0; i < straightCount; i++) {
-    const offset = i * dividerSpacing;
-    addDivider(thirdGrade ? dividerU : dividerU - offset, thirdGrade ? dividerDepth + offset : dividerDepth,
-      thirdGrade ? -Math.PI / 2 : 0, i === 0 ? [-dividerSpacing / 2, .47] : [-.47]);
-  }
-  const straightRun = (straightCount - 1) * dividerSpacing;
-  if (thirdGrade) {
-    researchSolid(dividerU - .111, dividerDepth + straightRun / 2, .333, straightRun + 1.01);
+  if (grade === 5) {
+    // Park all four panels along the copier-side wall, with their casters facing the room.
+    const parkedU = researchHalf - .083 - .045;
+    const firstDepth = 1.32;
+    for (let i = 0; i < 4; i++) {
+      const depth = firstDepth + i * dividerSpacing;
+      const feet = i === 0 ? [-dividerSpacing / 2, .47] : [-.47];
+      addDivider(parkedU, depth, -Math.PI / 2, feet);
+      for (const foot of feet) researchSolid(parkedU - .111, depth - foot, .333, .070, .10);
+    }
+    researchSolid(parkedU, firstDepth + 1.5 * dividerSpacing, .049, 4 * dividerSpacing, 1.60);
   } else {
-    researchSolid(dividerU - straightRun / 2, dividerDepth - .111, straightRun + 1.01, .333);
-    // Butt the return against the end post, facing the cart. Only its free end needs a foot.
-    const cornerU = dividerU - straightRun - .47;
-    const returnDepth = dividerDepth - .0245 - dividerSpacing / 2;
-    addDivider(cornerU, returnDepth, Math.PI / 2, [-.47]);
-    researchSolid(cornerU + .111, returnDepth, .333, 1.01);
+    const straightCount = lengthwiseLayout ? 2 : 3;
+    for (let i = 0; i < straightCount; i++) {
+      const offset = i * dividerSpacing;
+      addDivider(lengthwiseLayout ? dividerU : dividerU - offset, lengthwiseLayout ? dividerDepth + offset : dividerDepth,
+        lengthwiseLayout ? -Math.PI / 2 : 0, i === 0 ? [-dividerSpacing / 2, .47] : [-.47]);
+    }
+    const straightRun = (straightCount - 1) * dividerSpacing;
+    if (lengthwiseLayout) {
+      researchSolid(dividerU - .111, dividerDepth + straightRun / 2, .333, straightRun + 1.01);
+    } else {
+      researchSolid(dividerU - straightRun / 2, dividerDepth - .111, straightRun + 1.01, .333);
+      // Butt the return against the end post, facing the cart. Only its free end needs a foot.
+      const cornerU = dividerU - straightRun - .47;
+      const returnDepth = dividerDepth - .0245 - dividerSpacing / 2;
+      addDivider(cornerU, returnDepth, Math.PI / 2, [-.47]);
+      researchSolid(cornerU + .111, returnDepth, .333, 1.01);
+    }
   }
 
   function researchDrawerUnit(w, d, h, x, z, parts, body = frame, fronts = appliance) {
@@ -7554,8 +7593,8 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
     researchSolid(-2.52, depth, .51, cabinetWidth + .016);
   }
 
-  const cartU = thirdGrade ? researchHalf - .94 : dividerU - .97;
-  const cartDepth = thirdGrade ? 3.20 : dividerDepth - 1.29;
+  const cartU = lengthwiseLayout ? researchHalf - .94 : dividerU - .97;
+  const cartDepth = lengthwiseLayout ? 3.20 : dividerDepth - 1.29;
   const cart = researchFixture('research-folding-cart', cartU, cartDepth, Math.PI / 2);
   box(.711, .040, .942, 0, .267, 0, cartFabric, cart);
   for (const side of [-1, 1]) {
@@ -7572,16 +7611,16 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
     dark, 0, 0, 0, cart);
   researchSolid(cartU + .105, cartDepth, 1.19, .76);
 
-  const meetingU = -.10, meetingDepth = thirdGrade ? 5.10 : 5.70;
+  const meetingU = -.10, meetingDepth = lengthwiseLayout ? 5.10 : 5.70;
   const meetingWidth = 1.10, meetingLength = 3.05;
-  const meeting = researchFixture('research-meeting-table', meetingU, meetingDepth, thirdGrade ? 0 : Math.PI / 2);
+  const meeting = researchFixture('research-meeting-table', meetingU, meetingDepth, lengthwiseLayout ? 0 : Math.PI / 2);
   mesh(roundSlab(meetingWidth, meetingLength, .053, .079), mapleTop, 0, .753, 0, meeting);
   for (const x of [-.435, .435]) {
     for (const z of [-1.26, 1.26]) box(.056, .711, .056, x, .358, z, steel, { ...meeting, radius: .007 });
   }
   for (const z of [-1.26, 1.26]) box(.894, .046, .053, 0, .445, z, steel, { ...meeting, radius: .004 });
-  researchSolid(meetingU, meetingDepth, thirdGrade ? meetingWidth : meetingLength,
-    thirdGrade ? meetingLength : meetingWidth, .780);
+  researchSolid(meetingU, meetingDepth, lengthwiseLayout ? meetingWidth : meetingLength,
+    lengthwiseLayout ? meetingLength : meetingWidth, .780);
   function researchBasket(parts, x, z, y, color) {
     const rim = surface(color, { roughness: .65 });
     const grid = surface(color, { map: researchBasketGrid, alphaTest: .5, side: THREE.DoubleSide });
@@ -7593,17 +7632,17 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
       box(.008, .009, .220, x + side * .168, y + .081, z, rim, parts);
     }
   }
-  researchBasket(meeting, thirdGrade ? .16 : -.07, thirdGrade ? .96 : -.90, .780, thirdGrade ? '#b4c8bd' : '#e4e1d7');
+  researchBasket(meeting, lengthwiseLayout ? .16 : -.07, lengthwiseLayout ? .96 : -.90, .780, lengthwiseLayout ? '#b4c8bd' : '#e4e1d7');
   const booklet = new THREE.Group();
-  booklet.position.set(thirdGrade ? -.19 : .22, .780, thirdGrade ? -.93 : -.31); booklet.rotation.y = thirdGrade ? .09 : -.14; meeting.parent.add(booklet);
+  booklet.position.set(lengthwiseLayout ? -.19 : .22, .780, lengthwiseLayout ? -.93 : -.31); booklet.rotation.y = lengthwiseLayout ? .09 : -.14; meeting.parent.add(booklet);
   box(.354, .012, .245, 0, .006, 0, paper, { parent: booklet, radius: .002 });
   plane(.352, .243, 0, .0125, 0, workbook, { parent: booklet, rx: -Math.PI / 2, shadow: false });
-  const penX = thirdGrade ? .26 : -.09, penZ = thirdGrade ? .64 : .09;
+  const penX = lengthwiseLayout ? .26 : -.09, penZ = lengthwiseLayout ? .64 : .09;
   mesh(penCup, mapleEdge, penX, .780, penZ, meeting);
   for (const [i, tilt] of [-.14, .08, .22].entries()) {
     mesh(new THREE.CylinderGeometry(.004,.004,.14,8), binders[i], penX-.014+.014*i, .867, penZ, {...meeting, rz:tilt});
   }
-  const folderZ = thirdGrade ? -.57 : .32;
+  const folderZ = lengthwiseLayout ? -.57 : .32;
   box(.267,.022,.196,-.06,.791,folderZ,paper,{...meeting,ry:.07});
   box(.274,.004,.201,-.06,.804,folderZ,binders[4],{...meeting,ry:.07});
 
@@ -7628,13 +7667,13 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
   for (const [i, offset] of [.96, 0, -.96].entries()) {
     for (const side of [-1, 1]) {
       const fabric = researchFabric[(i + (side > 0)) % 3];
-      if (thirdGrade) researchChair(meetingU + side * .64, meetingDepth - offset, side * Math.PI / 2, fabric);
+      if (lengthwiseLayout) researchChair(meetingU + side * .64, meetingDepth - offset, side * Math.PI / 2, fabric);
       else researchChair(meetingU + offset, meetingDepth + side * .64, (side + 1) * Math.PI / 2, fabric);
     }
   }
 
   const researchMonitor = teacherDesk.getObjectByName('teacher-monitor');
-  if (!thirdGrade) {
+  if (!lengthwiseLayout) {
     const cabinetDepth = researchComputerWindowDepth + 1.16;
     const cabinet = researchFixture('research-computer-cabinet', 2.59, cabinetDepth, -Math.PI / 2);
     box(.84, .073, .44, 0, .037, 0, mapleEdge, cabinet);
@@ -7668,7 +7707,7 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
     for (const x of [.14, .24]) mesh(rolledSheet, mint, x, .806, -.15, { ...sideTable, rx: Math.PI / 2 });
     researchSolid(2.49, sideDepth, .66, 1.42);
   }
-  const stationDepth = thirdGrade ? 6.65 : researchComputerWindowDepth;
+  const stationDepth = lengthwiseLayout ? 6.65 : researchComputerWindowDepth;
   const station = researchFixture('research-workstation', 2.49, stationDepth, -Math.PI / 2);
   box(1.414, .048, .694, 0, .759, 0, frame, station);
   for (const x of [-.613, .613]) {
@@ -7686,7 +7725,7 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
   box(.41, .019, .128, .07, .794, .144, dark, { ...station, radius: .004 });
   box(.156, .379, .328, -.61, .973, -.133, black, station);
   box(.06, .03, .10, .37, .798, .145, dark, { ...station, radius: .014 });
-  if (thirdGrade) {
+  if (lengthwiseLayout) {
     box(.186, .016, .132, -.48, .791, .19, paper, { ...station, ry: -.08 });
     box(.19, .003, .136, -.48, .800, .19, binders[2], { ...station, ry: -.08 });
   }
@@ -7702,7 +7741,7 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
   box(1.81, .050, .586, 0, .754, 0, mapleTop, prep);
   for (const x of [-.79, .79]) box(.075, .733, .535, x, .365, 0, steel, prep);
   const supplies = new THREE.Group();
-  supplies.rotation.y = thirdGrade ? Math.PI : 0;
+  supplies.rotation.y = lengthwiseLayout ? Math.PI : 0;
   prep.parent.add(supplies);
   const worktop = { ...prep, parent: supplies };
   researchBasket(worktop, -.49, -.034, .779, '#d8b540');
@@ -7736,13 +7775,21 @@ function buildResearchRoom({ id, label, frontZ, backZ }) {
     researchFill.push(ceilingDownlight(corridorRight+d,researchCenter,13,4.6,.74));
   }
   installWallLightSwitch(id + '-light-switch-0', label + ' 전등',wallLightLabel('연구실'),
-    corridorRight+.045+.153/2,1.4,researchCenter+(researchDoorEnd+researchHalf)/2,Math.PI/2,researchDiffuser,researchFill);
+    corridorRight+.045+.153/2,1.4,researchCenter+(researchDoorEnd+researchHalf)/2,Math.PI/2,researchDiffuser,researchFill,constructionRoot);
   const researchCassette = ceilingCassette.clone();
   researchCassette.position.set(corridorRight + 5.97, height, researchCenter);
-  scene.add(researchCassette);
+  constructionRoot.add(researchCassette);
 }
 
 for (const room of researchRooms) buildResearchRoom(room);
+for (const room of stackedResearchRooms) {
+  const root = new THREE.Group();
+  root.position.y = room.level;
+  constructionRoot = root;
+  buildResearchRoom(room);
+  constructionRoot = scene;
+  for (const child of [...root.children]) scene.attach(child);
+}
 
 {
   const center = (supportFront + supportBack) / 2;
@@ -7913,6 +7960,32 @@ for (const room of researchRooms) buildResearchRoom(room);
     }),
   ];
 
+  function counselingSignMaterial(grade) {
+    const map = texture(288, 288, (g, w, h) => {
+      const x = w / 2;
+      g.fillStyle = '#af4759';
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = '#f6efe5';
+      g.beginPath();
+      g.ellipse(x, h / 2, 129, 115, 0, 0, Math.PI * 2);
+      g.fill();
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.font = 'bold 47px "Malgun Gothic", sans-serif';
+      g.fillStyle = '#74303e';
+      g.fillText('토닥토닥', x, 99);
+      g.fillText('이야기방', x, 153);
+      g.fillStyle = '#ac4053';
+      g.beginPath();
+      g.arc(x, 212, 24, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#fffaf0';
+      g.font = 'bold 35px "Malgun Gothic", sans-serif';
+      g.fillText(String(grade), x, 212);
+    });
+    return surface('#ffffff', { map, roughness: .80 });
+  }
+
   for (const { frontZ, backZ, doorZ, windowBayWidth, grade, label } of counselingRooms) {
     const center = (frontZ + backZ) / 2;
     const span = backZ - frontZ, half = span / 2;
@@ -7927,7 +8000,7 @@ for (const room of researchRooms) buildResearchRoom(room);
     const doorId = prefix + 'door', jamb = openingWidth / 2;
     const doorU = doorZ - center;
     buildClassroomDoor({ id: doorId, z: doorZ, direction: 1 }, { wallX: corridorRight, facing: -1, sticker: false });
-    placeCorridorSign(corridorRight, doorZ + jamb + .18, -1, classSignMaterial((grade === 4 ? '④' : '③') + ' 상담실', '#b49568'), prefix);
+    placeCorridorSign(corridorRight, doorZ + jamb + .18, -1, counselingSignMaterial(grade), prefix);
     const openings = [{
       door: doors.get(doorId), bounds: new THREE.Box3(
         new Vector3(corridorRight - .005, 0, doorZ - jamb), new Vector3(corridorRight, height, doorZ + jamb))
@@ -8646,8 +8719,8 @@ classroomThemes.english2 = {
   handouts: [['이번 주 영어 표현', '#587483'], ['영어 그림책 안내', '#806988']],
   timetable: { ...classroomThemes.sarang5.timetable, blank: true }
 };
-for (const { id, label, level } of stackedClassrooms) {
-  if (level !== -storey || classroomThemes[id]) continue;
+for (const { id, label } of stackedClassrooms) {
+  if (classroomThemes[id]) continue;
   const [grade, name] = label.split('-');
   const [themeId, subject] = primaryClassThemes[id.slice(0, -1)];
   const base = classroomThemes[themeId];
@@ -8986,7 +9059,8 @@ function buildAdditionalClassroom({ id, label, frontZ, backZ, facing = 1 }, wing
 }
 
 for (const room of [...additionalClassrooms].reverse()) buildAdditionalClassroom(room);
-const stackedWings = [createClassroomWing(1, storey), createClassroomWing(1, -storey), createClassroomWing(-1, -storey)];
+const stackedWings = [createClassroomWing(1, storey), createClassroomWing(-1, storey),
+  createClassroomWing(1, -storey), createClassroomWing(-1, -storey)];
 const allClassroomWings = [...classroomWings, ...stackedWings];
 for (const room of stackedClassrooms) {
   const wing = stackedWings.find(w => w.level === room.level && w.inward === room.facing);
@@ -9864,14 +9938,14 @@ const linkPavingEdgeV=entranceX-gymHallEndX;
 const pavingBackV=linkPavingEdgeV+arena.depth+.27;
 // World-space limits of the gym link's exposed roof and the existing clock-wing terrace.
 const scienceTerrace={wallX:gymHallEndX+.27, railX:gymRecessStartX-.055,
-  doorX:scienceEnd, startZ:scienceFront, turnZ:gymEndWallZ+.27, annexZ:firstClassWing+.30-.14,
+  doorX:scienceEnd, startZ:scienceFront, fieldEdgeZ:firstClassWing+.27, annexZ:firstClassWing+.30-.14,
   endZ:entranceZ+cafeteriaWallU-.57, roofY:-.001, annexY:firstFloorY+2*storey-.24+.15};
 function scienceTerraceSurface(x,z){
   const t=scienceTerrace;
   if(x<t.wallX+playerRadius || x>t.doorX+playerRadius || z<t.startZ+playerRadius || z>t.endZ-playerRadius)return;
-  if(z>t.turnZ-playerRadius && x>t.railX-playerRadius)return;
+  if(z>t.fieldEdgeZ-playerRadius && x>t.railX-playerRadius)return;
   if(x>t.doorX-playerRadius && Math.abs(z-wingZ)>innerMullion-playerRadius)return;
-  return z<t.annexZ ? t.roofY : t.annexY;
+  return x<t.railX+.055 && z>=t.annexZ ? t.annexY : t.roofY;
 }
 const podiumLeft = grounds.podiumU - grounds.podiumHalf;
 const podiumRight = grounds.podiumU + grounds.podiumHalf;
@@ -9949,6 +10023,8 @@ function buildSchoolGrounds() {
   // The remaining exterior bays and the entrance share the actual classroom wall line.
   const elevation=new THREE.Group();
   root.add(elevation);
+  const exteriorPartitions=new THREE.Group();
+  elevation.add(exteriorPartitions);
   let batchParent=root;
   const g=grounds, y0=g.pavingY, span=g.maxU-g.minU, center=(g.maxU+g.minU)/2;
   const sandY=y0-g.fieldDrop, sandWidth=g.sandMax-gymBankFoot, sandU=(gymBankFoot+g.sandMax)/2;
@@ -10058,12 +10134,11 @@ function buildSchoolGrounds() {
         shade.addColorStop(at,`rgba(44,40,34,${alpha})`);
       c.fillStyle=shade;c.fillRect(far-1,a,near-far+2,b-a);
     }
-    pavingShade(vestibuleDepth,recessV,firstClassWing,.18);
-    pavingShade(recessV,linkPavingEdgeV,gymEndWallZ,.18);
+    pavingShade(vestibuleDepth,linkPavingEdgeV,firstClassWing,.18);
     const strips=32, step=(clockEdgeV-recessV)/strips;
     for(let i=0;i<strips;i++){
       const softEdge=Math.min(1,(i+.5)*step/.85,(strips-i-.5)*step/.85);
-      pavingShade(recessV+i*step,recessV+(i+1)*step,gymEndWallZ,.28*softEdge);
+      pavingShade(recessV+i*step,recessV+(i+1)*step,firstClassWing,.28*softEdge);
     }
   });
   function linkPaving(a,b,from,to){
@@ -10179,8 +10254,10 @@ function buildSchoolGrounds() {
     const d=g.edgeDepth/n;
     for(let i=0;i<n;i++){
       const top=y0-i*g.fieldDrop/n, bottom=sandY-.025, v=g.fieldV+(i+.5)*d;
-      block(u,(top+bottom)/2,v,width,top-bottom,d,n===timberTiers?timber:concrete);
-      if(n===timberTiers)groundPatch(u,v,width,d,top+.0015,woodDeck);
+      if(n===timberTiers){
+        stamp(slabShell,timber,u,(top+bottom)/2,v,width,top-bottom,d);
+        groundPatch(u,v,width,d,top,woodDeck);
+      }else block(u,(top+bottom)/2,v,width,top-bottom,d,concrete);
     }
     edgeStart=end;
   }
@@ -10305,9 +10382,13 @@ function buildSchoolGrounds() {
       const partitionV=v-inset/2, partitionDepth=depth-Math.abs(inset);
       const sharedFront=i>0 && from-spans[i-1][1]<=.001;
       const frontDepth=sharedFront?.018:classroomFrontWallDepth;
-      block(from-frontDepth/2,base+height/2,partitionV,frontDepth,height,partitionDepth,brick);
+      const sharedScienceWall=outerX===classroomOuterFaceX && base===roomY && Math.abs(from+entranceZ-scienceBack)<.001;
+      // Mixed views through the gym link already draw the actual classroom partitions.
+      batchParent=outerX===classroomOuterFaceX ? exteriorPartitions : elevation;
+      if(!sharedScienceWall)block(from-frontDepth/2,base+height/2,partitionV,frontDepth,height,partitionDepth,brick);
       const sharesNext=i+1<spans.length && spans[i+1][0]-to<=.001;
       if(!sharesNext)block(to+.08,base+height/2,partitionV,.16,height,partitionDepth,brick);
+      batchParent=elevation;
       block(u,base+height/2,entranceX-hallX,w,height,.10,brick);
     }
   }
@@ -10408,36 +10489,36 @@ function buildSchoolGrounds() {
   const bridgeSpan=classroomOuterFaceX-gymHallEndX, bridgeV=startV+bridgeSpan/2;
   const nearPierU=firstClassWing-entranceZ, farPierU=gymHallFront-entranceZ;
   const soffit=storey-.48;
-  const recessV=entranceX-gymRecessEndX, recessU=gymEndWallZ-entranceZ;
+  const recessV=entranceX-gymRecessEndX;
   const apronU=nearPierU+.22, apronTop=storey+gymLinkSill;
   const mainSpan=recessV-startV, mainMidV=(startV+recessV)/2;
   const clockEdgeV=entranceX-gymRecessStartX, recessMidV=(recessV+clockEdgeV)/2;
-  for(const [a,b,edge,material] of [[startV,recessV,nearPierU,concrete],
-    [recessV,clockEdgeV,recessU,roofUnder],[clockEdgeV,linkPavingEdgeV,recessU,concrete]]){
-    block((edge+farPierU)/2,(soffit+storey-.012)/2,(a+b)/2,
-      edge-farPierU,storey-.012-soffit,b-a,material);
+  for(const [a,b,material] of [[startV,recessV,concrete],
+    [recessV,clockEdgeV,roofUnder],[clockEdgeV,linkPavingEdgeV,concrete]]){
+    block((nearPierU+farPierU)/2,(soffit+storey-.012)/2,(a+b)/2,
+      nearPierU-farPierU,storey-.012-soffit,b-a,material);
   }
   masonry(apronU,(apronTop+soffit)/2,mainMidV,.16,apronTop-soffit,mainSpan);
   block(apronU+.01,apronTop+.022,mainMidV,.19,.044,mainSpan,slabStone);
   const {width:opening,sill:windowSill,head:windowHeadY}=gymRecessWindow;
   const sillY=storey+windowSill, headY=storey+windowHeadY, topY=storey+height+.045;
-  const skinU=recessU+.21, skinSpan=gymRecessBay-.15, jamb=(gymRecessBay-opening)/2;
-  const skinMidV=recessMidV+.075;
-  masonry(skinU,(soffit+sillY)/2,skinMidV,.12,sillY-soffit,skinSpan);
-  masonry(skinU,(headY+topY)/2,skinMidV,.12,topY-headY,skinSpan);
-  for(const [a,b] of [[recessV+.15,recessV+jamb],[clockEdgeV-jamb,clockEdgeV]])
+  const skinU=nearPierU+.21, jamb=(gymRecessBay-opening)/2;
+  const sillThickness=.05, sillSpan=opening+.12, sillBase=sillY-sillThickness;
+  const sillStart=recessMidV-sillSpan/2, sillEnd=recessMidV+sillSpan/2;
+  // Seat the projecting stone sill on the brickwork; only its top is exposed.
+  for(const [a,b,top] of [[recessV,sillStart,sillY],[sillStart,sillEnd,sillBase],[sillEnd,clockEdgeV,sillY]])
+    masonry(skinU,(soffit+top)/2,(a+b)/2,.12,top-soffit,b-a);
+  masonry(skinU,(headY+topY)/2,recessMidV,.12,topY-headY,gymRecessBay);
+  for(const [a,b] of [[recessV,recessV+jamb],[clockEdgeV-jamb,clockEdgeV]])
     masonry(skinU,(sillY+headY)/2,(a+b)/2,.12,headY-sillY,b-a);
-  block(skinU+.025,sillY-.025,recessMidV,.21,.05,opening+.12,slabStone);
-  masonry((skinU+.06+apronU+.08)/2,(soffit+topY)/2,recessV+.20,
-    apronU+.08-skinU-.06,topY-soffit,.10);
+  block(skinU+.025,(sillY+sillBase)/2,recessMidV,.21,sillThickness,sillSpan,slabStone);
   const annexJointU=nearPierU+.30-.12;
   masonry((skinU-.06+annexJointU)/2,(soffit+topY)/2,clockEdgeV+.11,
-    annexJointU-skinU+.06,topY-soffit,.22);
+    annexJointU-(skinU-.06),topY-soffit,.22);
   for(const u of [nearPierU-.43,farPierU+.43]){
     for(const v of [startV+.43,bridgeV,linkPavingEdgeV-.43]){
-      const supportU=u===nearPierU-.43 && v>recessV ? u-gymEndInset : u;
-      masonry(supportU,(y0+soffit)/2,v,.86,soffit-y0,.86);
-      obstacle(supportU,v,.86,.86);
+      masonry(u,(y0+soffit)/2,v,.86,soffit-y0,.86);
+      obstacle(u,v,.86,.86);
     }
   }
   // Keep the cladding with the real windows even when the lower storeys are culled.
@@ -10559,7 +10640,6 @@ function buildSchoolGrounds() {
   const linkFrom=courtU(gymHallWidth/2),linkTo=courtU(-gymHallWidth/2);
   coat(courtFrom,courtU(gymStore.end),storey,roofY,entryCoat);
   coat(courtU(storeRoomStart),linkFrom,storey,roofY,entryCoat);
-  coat(recessU+.15,linkTo,storey,storey+height+.045,entryCoat);
   const highFrom=courtU(courtLinkWindowTo), highTo=courtU(courtLinkWindowFrom);
   coat(linkTo,highFrom,storey,roofY,entryCoat);
   coat(highFrom,highTo,storey,low,entryCoat);
@@ -10613,12 +10693,12 @@ function buildSchoolGrounds() {
     block((z0+z1)/2-entranceZ,(roofFinish+underside)/2,entranceX-(x0+x1)/2,
       z1-z0,roofFinish-underside,x1-x0,trim);
   }
-  roofStrip(t.wallX,t.doorX,gymHallFront,t.turnZ);
+  roofStrip(t.wallX,t.railX+.055,gymHallFront,t.annexZ);
+  roofStrip(t.railX+.055,t.doorX,gymHallFront,t.fieldEdgeZ);
   roofStrip(t.doorX,classroomOuterFaceX,gymHallFront,t.startZ);
   const sideDoorX=gymHallEndX+gymSideDoor.offset;
   roofStrip(sideDoorX-gymSideDoor.width/2,sideDoorX+gymSideDoor.width/2,
     gymHallFront-gymSideDoor.recess,gymHallFront,storey+height+.058);
-  roofStrip(t.wallX,t.railX+.055,t.turnZ,t.annexZ);
   function guard(x0,z0,x1,z1){
     const alongX=x0!==x1, span=Math.hypot(x1-x0,z1-z0), bars=Math.ceil(span/.18);
     for(const up of [.16,.95])block((z0+z1)/2-entranceZ,roofFinish+up,entranceX-(x0+x1)/2,
@@ -10628,8 +10708,8 @@ function buildSchoolGrounds() {
   }
   const scienceWallOutside=wingEndWallX-.08;
   guard(t.wallX,t.startZ,scienceWallOutside,t.startZ);
-  guard(t.railX,t.turnZ,scienceWallOutside,t.turnZ);
-  guard(t.railX,t.turnZ,t.railX,entranceZ+railFrom);
+  guard(t.railX,t.fieldEdgeZ,scienceWallOutside,t.fieldEdgeZ);
+  guard(t.railX,t.fieldEdgeZ,t.railX,entranceZ+railFrom);
   // Follow the exposed side and turn behind the clock at the field end.
   for(const up of [.16,.95]){
     block((railFrom+railTo)/2,terraceY+up,railV,railLength,.045,.045,trim);
@@ -10642,7 +10722,7 @@ function buildSchoolGrounds() {
     post(railTo,terraceY+.47,railV+(annexWidth-.055)*i/endBars,.024,.94,trim);
   const shelterSpan=annexWidth-.32, shelterLength=2.65;
   // Start at the outside face of the science doorway and keep the posts inside the terrace rail.
-  const shelterU=Math.min(wingZ,t.turnZ-.06-shelterLength/2)-entranceZ;
+  const shelterU=Math.min(wingZ,t.fieldEdgeZ-.06-shelterLength/2)-entranceZ;
   const shelterV=endFace+reveal+shelterSpan/2, postHeight=2.26, eaveY=roofFinish+postHeight;
   stamp(arch,roofUnder,shelterU,eaveY,shelterV,shelterSpan,1.04,shelterLength,0,Math.PI/2);
   for(const u of [shelterU-shelterLength/2+.09,shelterU+shelterLength/2-.09]){
@@ -10806,7 +10886,7 @@ function buildSchoolGrounds() {
     const v=u===8 ? rampBack-.66 : 4.72;
     solid(u,v,5.9,.43,1.17,timber);
     block(u,.295,v,5.76,.018,1.04,soil);
-    for(const a of [-1.9,0,1.8])tree(u+a,v,1.06,1,.29,1.65);
+    for(const a of [-1.9,0,1.8])tree(u+a,v+(a===0?.22:0),1.06,1,.29,1.65);
     // Keep the crown on the yard side of the windows, including the planter beside the ramp.
     tree(u,Math.max(v,facadeDepth+1.10+.06),3.35,2,.29,2.2);
   }
@@ -10932,6 +11012,7 @@ function buildSchoolGrounds() {
   // One draw per shared finish/shape, including the facade bays, all roof ribs and field trees.
   for(const {parent,geometry,material,matrices} of groups.values()){
     const batch=new THREE.InstancedMesh(geometry,material,matrices.length);
+    if(parent===exteriorPartitions)batch.layers.set(1);
     matrices.forEach((m,i)=>batch.setMatrixAt(i,m));batch.computeBoundingSphere();
     parent.add(batch);
   }
@@ -10957,6 +11038,8 @@ for (const part of gymSanitaryParts) {
 
 batchLockerParts();
 const renderRooms = [
+  ...stackedResearchRooms.map(r => createRenderRoom(r.label, corridorRight, bareumOuterWall,
+    corridorRight, r.frontZ, r.backZ, false, r.level)),
   ...stackedClassrooms.map(r => createRenderRoom(r.label, r.facing > 0 ? left : corridorRight,
     r.facing > 0 ? right : bareumOuterWall, r.facing > 0 ? right : corridorRight, r.frontZ, r.backZ, false, r.level)),
   createLibraryRenderRoom(),
@@ -11291,6 +11374,7 @@ gymPassage.traverse(object => { object.layers.enable(1); object.layers.enable(au
 secondFloorHall.traverse(object => object.layers.enable(auditoriumViewLayer));
 schoolGroundsRoot.traverse(object => { object.layers.enable(1); object.layers.enable(auditoriumViewLayer); });
 scienceCorridor.traverse(object => object.layers.enable(1));
+scienceClassroomWall.layers.enable(auditoriumViewLayer);
 
 const detailRooms = renderRooms.filter(({ group }) => group.children.length > 0);
 for (const { group } of detailRooms) scene.add(group);
